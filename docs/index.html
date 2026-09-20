@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>E-Bike AI Route & Energy Optimizer</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    html, body, #map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .leaflet-control-zoom {
+      border: none !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+    }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    }
+  </style>
+</head>
+<body class="relative bg-slate-100 select-none">
+
+  <!-- Карта Leaflet на весь экран -->
+  <div id="map" class="z-0"></div>
+
+  <!-- Верхняя панель управления -->
+  <div class="absolute top-3 left-3 right-3 z-10 flex flex-col gap-2 max-w-md mx-auto pointer-events-none">
+    <div class="glass-card rounded-2xl p-3 border border-white/60 pointer-events-auto flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30">
+          <i class="fa-solid fa-bicycle text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-sm font-bold text-slate-800 leading-tight">E-Bike AI Optimizer</h1>
+          <p class="text-xs text-slate-500" id="topStatusText">Кликните по карте для выбора точек</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button id="btnGeo" title="Мое местоположение" class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition active:scale-95">
+          <i class="fa-solid fa-location-crosshairs text-sm"></i>
+        </button>
+        <button id="btnSettings" title="Настройки байка и погоды" class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition active:scale-95">
+          <i class="fa-solid fa-sliders text-sm"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Переключатель режима клика (Старт / Финиш) -->
+    <div class="glass-card rounded-xl p-1.5 border border-white/60 pointer-events-auto flex gap-1 text-xs font-medium">
+      <button id="modeStart" class="flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 bg-emerald-500 text-white shadow-sm transition">
+        <span class="w-2 h-2 rounded-full bg-white animate-pulse"></span> Точка старта (🟢)
+      </button>
+      <button id="modeEnd" class="flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 text-slate-600 hover:bg-slate-100 transition">
+        <span class="w-2 h-2 rounded-full bg-rose-500"></span> Точка финиша (🔴)
+      </button>
+    </div>
+  </div>
+
+  <!-- Кнопка расчета маршрута (плавающая снизу) -->
+  <div class="absolute bottom-6 left-4 right-4 z-10 max-w-md mx-auto pointer-events-none" id="bottomActionArea">
+    <button id="btnCalculate" class="w-full pointer-events-auto bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3.5 px-5 rounded-2xl shadow-xl shadow-slate-900/25 flex items-center justify-center gap-2 transition active:scale-[0.98]">
+      <i class="fa-solid fa-bolt text-amber-400"></i>
+      <span>Рассчитать оптимальный маршрут</span>
+    </button>
+  </div>
+
+  <!-- Нижняя панель с результатами расчета (выдвижная шторка) -->
+  <div id="resultsCard" class="hidden absolute bottom-0 left-0 right-0 z-20 glass-card rounded-t-3xl border-t border-white/60 p-4 max-w-lg mx-auto transition-transform duration-300 pointer-events-auto max-h-[85vh] overflow-y-auto">
+    <!-- Ручка шторки -->
+    <div class="w-12 h-1.5 bg-slate-300 rounded-full mx-auto mb-3 cursor-pointer" id="closeResults"></div>
+
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h2 class="text-base font-bold text-slate-800">Результаты расчета</h2>
+        <p class="text-xs text-slate-500" id="routeSubhead">Физическая модель расхода батареи</p>
+      </div>
+      <button id="btnCloseResults" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200">
+        <i class="fa-solid fa-xmark text-sm"></i>
+      </button>
+    </div>
+
+    <!-- Селектор альтернативных маршрутов (Быстрый vs Эко) -->
+    <div id="routeTabsContainer" class="flex gap-2 mb-3"></div>
+
+    <!-- Статус безопасности батареи -->
+    <div id="safetyBanner" class="p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5"></div>
+
+    <!-- Сетка ключевых показателей -->
+    <div class="grid grid-cols-3 gap-2 mb-3">
+      <div class="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-center">
+        <div class="text-[11px] text-slate-400 uppercase font-medium">Дистанция</div>
+        <div class="text-base font-bold text-slate-800" id="resDistance">0.0 км</div>
+      </div>
+      <div class="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-center">
+        <div class="text-[11px] text-slate-400 uppercase font-medium">Время</div>
+        <div class="text-base font-bold text-slate-800" id="resDuration">0 мин</div>
+      </div>
+      <div class="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-center">
+        <div class="text-[11px] text-slate-400 uppercase font-medium">Подъем</div>
+        <div class="text-base font-bold text-slate-800" id="resAscent">0 м</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-2 mb-3">
+      <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-2.5">
+        <div class="text-[11px] text-emerald-700 font-medium">Расход батареи</div>
+        <div class="text-lg font-black text-emerald-900" id="resEnergy">0 Вт·ч</div>
+        <div class="text-xs text-emerald-600 font-semibold" id="resDropPercent">0% АКБ</div>
+      </div>
+      <div class="bg-blue-50 border border-blue-100 rounded-xl p-2.5">
+        <div class="text-[11px] text-blue-700 font-medium">Остаток заряда</div>
+        <div class="text-lg font-black text-blue-900" id="resFinalCharge">100%</div>
+        <div class="text-xs text-blue-600" id="resEffectiveCap">Эфф. емкость: 720 Вт·ч</div>
+      </div>
+    </div>
+
+    <!-- Раскрывающийся блок детализации физики -->
+    <details class="text-xs text-slate-600 bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 cursor-pointer">
+      <summary class="font-semibold text-slate-700 select-none">🔬 Структура энергозатрат (куда ушла энергия)</summary>
+      <div class="mt-2.5 space-y-1.5 pt-2 border-t border-slate-200 text-[11px]" id="energyBreakdownList"></div>
+    </details>
+  </div>
+
+  <!-- Модальное окно настроек байка и условий -->
+  <div id="settingsModal" class="hidden fixed inset-0 z-30 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md p-5 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-base text-slate-800">⚙️ Параметры поездки</h3>
+        <button id="btnCloseSettings" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3.5 text-xs text-slate-700">
+        <div>
+          <label class="font-semibold block mb-1">Тип электровелосипеда:</label>
+          <select id="cfgBike" class="w-full border border-slate-300 rounded-xl p-2.5 bg-slate-50 font-medium">
+            <option value="courier_standard">Курьерский стандарт (48V 15Ah — 720 Вт·ч, 32 кг)</option>
+            <option value="courier_heavy">Курьерский дальнобойный (60V 20Ah — 1200 Вт·ч, 38 кг)</option>
+            <option value="city_compact">Городской легкий (36V 10.4Ah — 375 Вт·ч, 20 кг)</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="flex justify-between font-semibold mb-1">
+            <span>Текущий заряд батареи:</span>
+            <span id="cfgChargeVal" class="text-emerald-600 font-bold">80%</span>
+          </div>
+          <input type="range" id="cfgCharge" min="10" max="100" value="80" step="5" class="w-full accent-emerald-500">
+        </div>
+
+        <div>
+          <div class="flex justify-between font-semibold mb-1">
+            <span>Температура воздуха:</span>
+            <span id="cfgTempVal" class="text-blue-600 font-bold">+15°C</span>
+          </div>
+          <input type="range" id="cfgTemp" min="-25" max="35" value="15" step="1" class="w-full accent-blue-500">
+          <p id="tempEffectNote" class="text-[11px] text-slate-400 mt-1">Оптимальная температура для Li-ion батареи (100% емкости).</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="font-semibold block mb-1">Термосумка (кг):</label>
+            <input type="number" id="cfgCargo" min="0" max="25" value="6" step="1" class="w-full border border-slate-300 rounded-xl p-2 text-center font-bold">
+          </div>
+          <div>
+            <label class="font-semibold block mb-1">Вес курьера (кг):</label>
+            <input type="number" id="cfgRider" min="40" max="140" value="75" step="1" class="w-full border border-slate-300 rounded-xl p-2 text-center font-bold">
+          </div>
+        </div>
+
+        <div>
+          <div class="flex justify-between font-semibold mb-1">
+            <span>Встречный ветер:</span>
+            <span id="cfgWindVal" class="text-slate-600 font-bold">5 км/ч</span>
+          </div>
+          <input type="range" id="cfgWind" min="0" max="40" value="5" step="5" class="w-full accent-slate-700">
+        </div>
+
+        <div class="pt-2 border-t border-slate-200">
+          <label class="font-semibold block mb-1 text-slate-500">OpenRouteService API Key (опционально):</label>
+          <input type="text" id="cfgApiKey" placeholder="Встроен демо-ключ" class="w-full border border-slate-300 rounded-xl p-2 text-xs font-mono text-slate-600">
+          <p class="text-[10px] text-slate-400 mt-1">По умолчанию используется настроенный ключ. Вы можете указать свой личный ключ из openrouteservice.org.</p>
+        </div>
+      </div>
+
+      <button id="btnSaveSettings" class="w-full mt-4 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-xl transition">
+        Сохранить настройки
+      </button>
+    </div>
+  </div>
+
+  <!-- JavaScript: Интерактивная логика, Карта и Физический движок -->
+  <script>
+    // ------------------- Пресеты байков -------------------
+    const BIKE_PRESETS = {
+      courier_standard: { name: "Курьерский стандарт", capacityWh: 720, weightKg: 32, desc: "Minako / Колхозник" },
+      courier_heavy: { name: "Курьерский дальнобойный", capacityWh: 1200, weightKg: 38, desc: "60V 20Ah" },
+      city_compact: { name: "Городской легкий", capacityWh: 374.4, weightKg: 20, desc: "36V 10.4Ah" }
+    };
+
+    // Дефолтный ключ OpenRouteService
+    const DEFAULT_ORS_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjdhN2FlNzVjNDkyZTRkNmJiOTc0OWZkYWI5MWZiMzBjIiwiaCI6Im11cm11cjY0In0=";
+
+    // ------------------- Состояние приложения -------------------
+    let state = {
+      clickMode: 'start', // 'start' | 'end'
+      startCoord: [49.8019, 73.1021], // Караганда центр [lat, lon]
+      endCoord: [49.7900, 73.1100],
+      bikeType: 'courier_standard',
+      initialCharge: 80,
+      tempC: 15,
+      cargoKg: 6,
+      riderKg: 75,
+      headwindKmh: 5,
+      apiKey: localStorage.getItem('ebike_ors_key') || DEFAULT_ORS_KEY,
+      calculatedRoutes: null,
+      selectedRouteIdx: 0
+    };
+
+    // ------------------- Инициализация карты Leaflet -------------------
+    const map = L.map('map', { zoomControl: false }).setView([49.7960, 73.1060], 13);
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }).addTo(map);
+
+    // Кастомные HTML-иконки для маркеров
+    const startIcon = L.divIcon({
+      className: '',
+      html: '<div style="background:#10b981; width:32px; height:32px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; color:white;"><i class="fa-solid fa-play" style="font-size:12px; margin-left:2px;"></i></div>',
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+
+    const endIcon = L.divIcon({
+      className: '',
+      html: '<div style="background:#ef4444; width:32px; height:32px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; color:white;"><i class="fa-solid fa-flag-checkered" style="font-size:12px;"></i></div>',
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+
+    let startMarker = L.marker(state.startCoord, { icon: startIcon, draggable: true }).addTo(map);
+    let endMarker = L.marker(state.endCoord, { icon: endIcon, draggable: true }).addTo(map);
+
+    startMarker.on('dragend', (e) => {
+      const pos = e.target.getLatLng();
+      state.startCoord = [pos.lat, pos.lng];
+    });
+
+    endMarker.on('dragend', (e) => {
+      const pos = e.target.getLatLng();
+      state.endCoord = [pos.lat, pos.lng];
+    });
+
+    let routePolylines = [];
+
+    // Обработка клика по карте для установки точек
+    map.on('click', (e) => {
+      const lat = parseFloat(e.latlng.lat.toFixed(6));
+      const lng = parseFloat(e.latlng.lng.toFixed(6));
+
+      if (state.clickMode === 'start') {
+        state.startCoord = [lat, lng];
+        startMarker.setLatLng([lat, lng]);
+        setClickMode('end'); // автоматическое переключение на финиш
+      } else {
+        state.endCoord = [lat, lng];
+        endMarker.setLatLng([lat, lng]);
+        setClickMode('start');
+      }
+    });
+
+    // ------------------- Управление режимами клика -------------------
+    const modeStartBtn = document.getElementById('modeStart');
+    const modeEndBtn = document.getElementById('modeEnd');
+    const topStatusText = document.getElementById('topStatusText');
+
+    function setClickMode(mode) {
+      state.clickMode = mode;
+      if (mode === 'start') {
+        modeStartBtn.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 bg-emerald-500 text-white shadow-sm transition";
+        modeEndBtn.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 text-slate-600 hover:bg-slate-100 transition";
+        topStatusText.innerText = "Кликните на карту для выбора Старта 🟢";
+      } else {
+        modeEndBtn.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 bg-rose-500 text-white shadow-sm transition";
+        modeStartBtn.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 text-slate-600 hover:bg-slate-100 transition";
+        topStatusText.innerText = "Кликните на карту для выбора Финиша 🔴";
+      }
+    }
+
+    modeStartBtn.onclick = () => setClickMode('start');
+    modeEndBtn.onclick = () => setClickMode('end');
+
+    // Геолокация (Мое местоположение)
+    document.getElementById('btnGeo').onclick = () => {
+      if (!navigator.geolocation) {
+        alert("Геолокация не поддерживается вашим браузером.");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          state.startCoord = [lat, lng];
+          startMarker.setLatLng([lat, lng]);
+          map.setView([lat, lng], 14);
+          setClickMode('end');
+        },
+        (err) => {
+          alert("Не удалось определить координаты: " + err.message);
+        },
+        { enableHighAccuracy: true }
+      );
+    };
+
+    // ------------------- Физическая модель в JavaScript -------------------
+    class EbikePhysics {
+      static getTemperatureCapacityFactor(tempC) {
+        if (tempC >= 20.0) return 1.00;
+        if (tempC >= 10.0) return 0.95 + 0.05 * ((tempC - 10.0) / 10.0);
+        if (tempC >= 0.0) return 0.88 + 0.07 * (tempC / 10.0);
+        if (tempC >= -10.0) return 0.74 + 0.14 * ((tempC + 10.0) / 10.0);
+        if (tempC >= -20.0) return 0.55 + 0.19 * ((tempC + 20.0) / 10.0);
+        return Math.max(0.40, 0.55 + 0.015 * (tempC + 20.0));
+      }
+
+      static calculate(params) {
+        const {
+          distanceKm, ascentM, descentM, durationSeconds,
+          cargoKg, riderKg, bikeWeightKg, batteryCapacityWh,
+          initialChargePercent, tempC, headwindKmh
+        } = params;
+
+        const totalMass = bikeWeightKg + riderKg + cargoKg;
+        const distanceM = distanceKm * 1000.0;
+        const speedMs = durationSeconds > 0 ? (distanceM / durationSeconds) : (20.0 / 3.6);
+        const durationMin = durationSeconds > 0 ? (durationSeconds / 60.0) : (distanceKm / 20.0 * 60.0);
+
+        // 1. Качение: F_roll = Crr * m * g
+        const fRoll = 0.007 * totalMass * 9.81;
+        const workRoll = fRoll * distanceM;
+
+        // 2. Аэродинамика: F_aero = 0.5 * rho * CdA * v_rel^2
+        const airDensity = 1.225 * (288.15 / (tempC + 273.15));
+        const relSpeedMs = speedMs + (headwindKmh / 3.6);
+        const fAero = 0.5 * airDensity * 0.62 * Math.pow(relSpeedMs, 2);
+        const workAero = fAero * distanceM;
+
+        // 3. Гравитация (подъем и рекуперация)
+        const workClimb = totalMass * 9.81 * Math.max(0, ascentM);
+        const workRegen = totalMass * 9.81 * Math.max(0, descentM) * 0.05;
+
+        const netWork = Math.max(0, workRoll + workAero + workClimb - workRegen);
+        const electricalWh = (netWork / 0.80) / 3600.0;
+
+        // Эффективная емкость от температуры
+        const tempFactor = this.getTemperatureCapacityFactor(tempC);
+        const effectiveCapWh = batteryCapacityWh * tempFactor;
+        const consumedPercent = (electricalWh / effectiveCapWh) * 100.0;
+        const finalChargePercent = initialChargePercent - consumedPercent;
+
+        let safetyStatus = "safe";
+        if (finalChargePercent <= 0) safetyStatus = "critical";
+        else if (finalChargePercent < 15) safetyStatus = "warning";
+
+        return {
+          distanceKm: parseFloat(distanceKm.toFixed(2)),
+          ascentM: Math.round(ascentM),
+          descentM: Math.round(descentM),
+          durationMinutes: Math.round(durationMin),
+          energyConsumedWh: parseFloat(electricalWh.toFixed(1)),
+          energyConsumedPercent: parseFloat(consumedPercent.toFixed(1)),
+          finalChargePercent: parseFloat(finalChargePercent.toFixed(1)),
+          effectiveCapacityWh: Math.round(effectiveCapWh),
+          tempFactor: parseFloat(tempFactor.toFixed(2)),
+          safetyStatus,
+          details: {
+            rollingWh: Math.round((workRoll / 0.8 / 3600)),
+            aeroWh: Math.round((workAero / 0.8 / 3600)),
+            climbWh: Math.round((workClimb / 0.8 / 3600))
+          }
+        };
+      }
+    }
+
+    // ------------------- Запрос к OpenRouteService -------------------
+    async function fetchRoutes(startCoord, endCoord, apiKey) {
+      const url = "https://api.openrouteservice.org/v2/directions/cycling-electric/geojson";
+      const body = {
+        coordinates: [
+          [startCoord[1], startCoord[0]],
+          [endCoord[1], endCoord[0]]
+        ],
+        elevation: true,
+        alternative_routes: { target_count: 2, share_factor: 0.8, weight_factor: 1.6 }
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": apiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Ошибка ORS API (код ${res.status})`);
+      }
+
+      return await res.json();
+    }
+
+    // ------------------- Обработка расчета -------------------
+    const btnCalculate = document.getElementById('btnCalculate');
+    const resultsCard = document.getElementById('resultsCard');
+
+    btnCalculate.onclick = async () => {
+      btnCalculate.disabled = true;
+      btnCalculate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Строим маршрут и считаем физику...</span>';
+
+      try {
+        const data = await fetchRoutes(state.startCoord, state.endCoord, state.apiKey);
+        const features = data.features;
+        if (!features || features.length === 0) {
+          alert("Не удалось построить маршрут между точками.");
+          return;
+        }
+
+        const preset = BIKE_PRESETS[state.bikeType];
+        
+        // Расчет энергии для каждого маршрута
+        state.calculatedRoutes = features.map((feat, idx) => {
+          const seg = feat.properties.segments[0];
+          const distKm = seg.distance / 1000.0;
+          let ascent = seg.ascent || 0;
+          let descent = seg.descent || 0;
+          const coords = feat.geometry.coordinates;
+
+          if (ascent === 0 && coords.length > 1 && coords[0].length > 2) {
+            const eles = coords.map(c => c[2]);
+            for (let i = 1; i < eles.length; i++) {
+              const diff = eles[i] - eles[i-1];
+              if (diff > 0) ascent += diff; else descent += Math.abs(diff);
+            }
+          }
+
+          const calc = EbikePhysics.calculate({
+            distanceKm: distKm,
+            ascentM: ascent,
+            descentM: descent,
+            durationSeconds: seg.duration,
+            cargoKg: state.cargoKg,
+            riderKg: state.riderKg,
+            bikeWeightKg: preset.weightKg,
+            batteryCapacityWh: preset.capacityWh,
+            initialChargePercent: state.initialCharge,
+            tempC: state.tempC,
+            headwindKmh: state.headwindKmh
+          });
+
+          return {
+            name: idx === 0 ? "Самый быстрый" : "Эко-пологий",
+            isEco: idx > 0,
+            geometry: coords.map(c => [c[1], c[0]]),
+            calc
+          };
+        });
+
+        renderRoutesOnMap(state.calculatedRoutes);
+        showResultsCard(0);
+      } catch (err) {
+        alert("Ошибка построения маршрута: " + err.message);
+      } finally {
+        btnCalculate.disabled = false;
+        btnCalculate.innerHTML = '<i class="fa-solid fa-bolt text-amber-400"></i><span>Рассчитать оптимальный маршрут</span>';
+      }
+    };
+
+    // Отрисовка маршрутов на карте Leaflet
+    function renderRoutesOnMap(routes) {
+      routePolylines.forEach(p => map.removeLayer(p));
+      routePolylines = [];
+
+      const colors = ['#0066FF', '#10B981'];
+
+      routes.forEach((r, idx) => {
+        const isSelected = idx === state.selectedRouteIdx;
+        const line = L.polyline(r.geometry, {
+          color: colors[idx % colors.length],
+          weight: isSelected ? 6 : 4,
+          opacity: isSelected ? 0.9 : 0.4
+        }).addTo(map);
+        routePolylines.push(line);
+      });
+
+      if (routes[0]?.geometry?.length > 0) {
+        const bounds = L.latLngBounds(routes[0].geometry);
+        map.fitBounds(bounds, { padding: [50, 50] });
+      }
+    }
+
+    // Отображение карточки результатов
+    function showResultsCard(idx) {
+      state.selectedRouteIdx = idx;
+      const routes = state.calculatedRoutes;
+      const r = routes[idx];
+      const c = r.calc;
+
+      // Обновляем толщину линий
+      routePolylines.forEach((line, i) => {
+        line.setStyle({ weight: i === idx ? 6 : 4, opacity: i === idx ? 0.9 : 0.4 });
+      });
+
+      // Рендер вкладок маршрутов
+      const tabsEl = document.getElementById('routeTabsContainer');
+      tabsEl.innerHTML = routes.map((item, i) => `
+        <button onclick="showResultsCard(${i})" class="flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition ${i === idx ? 'bg-slate-900 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+          <span>${item.isEco ? '🍃 Эко-пологий' : '⚡ Быстрый'}</span>
+          <span class="text-[10px] opacity-75">${item.calc.energyConsumedWh} Вт·ч</span>
+        </button>
+      `).join('');
+
+      // Баннер безопасности
+      const banner = document.getElementById('safetyBanner');
+      if (c.safetyStatus === 'critical') {
+        banner.className = "p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5 bg-rose-100 text-rose-800 border border-rose-200";
+        banner.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-base"></i><div><b>Критический разряд!</b> Батареи не хватит на поездку (расход ' + c.energyConsumedPercent + '%, доступно ' + state.initialCharge + '%). Необходима смена АКБ.</div>';
+      } else if (c.safetyStatus === 'warning') {
+        banner.className = "p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5 bg-amber-100 text-amber-800 border border-amber-200";
+        banner.innerHTML = '<i class="fa-solid fa-circle-exclamation text-base"></i><div><b>Внимание:</b> останется всего ' + c.finalChargePercent + '% заряда. Рекомендуется экономить энергию.</div>';
+      } else {
+        banner.className = "p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5 bg-emerald-100 text-emerald-800 border border-emerald-200";
+        banner.innerHTML = '<i class="fa-solid fa-circle-check text-base"></i><div><b>Маршрут безопасен:</b> батареи хватит с комфортным запасом. Остаток после рейса: ' + c.finalChargePercent + '%.</div>';
+      }
+
+      document.getElementById('resDistance').innerText = c.distanceKm + ' км';
+      document.getElementById('resDuration').innerText = c.durationMinutes + ' мин';
+      document.getElementById('resAscent').innerText = '+' + c.ascentM + ' м';
+      document.getElementById('resEnergy').innerText = c.energyConsumedWh + ' Вт·ч';
+      document.getElementById('resDropPercent').innerText = '-' + c.energyConsumedPercent + '% АКБ';
+      document.getElementById('resFinalCharge').innerText = c.finalChargePercent + '%';
+      document.getElementById('resEffectiveCap').innerText = 'Эфф. емкость: ' + c.effectiveCapacityWh + ' Вт·ч';
+
+      // Детализация физики
+      const breakdownEl = document.getElementById('energyBreakdownList');
+      breakdownEl.innerHTML = `
+        <div class="flex justify-between"><span>Трение качения колес:</span><b class="text-slate-800">${c.details.rollingWh} Вт·ч</b></div>
+        <div class="flex justify-between"><span>Лобовое сопротивление воздуха:</span><b class="text-slate-800">${c.details.aeroWh} Вт·ч</b></div>
+        <div class="flex justify-between"><span>Преодоление подъема (гравитация):</span><b class="text-slate-800">${c.details.climbWh} Вт·ч</b></div>
+        <div class="flex justify-between pt-1 border-t border-slate-200"><span>Температурный фактор Li-ion:</span><b>${Math.round(c.tempFactor * 100)}% от номинала</b></div>
+      `;
+
+      resultsCard.classList.remove('hidden');
+    }
+
+    // Закрытие карточки результатов
+    document.getElementById('closeResults').onclick = () => resultsCard.classList.add('hidden');
+    document.getElementById('btnCloseResults').onclick = () => resultsCard.classList.add('hidden');
+
+    // ------------------- Модалка настроек -------------------
+    const settingsModal = document.getElementById('settingsModal');
+    document.getElementById('btnSettings').onclick = () => {
+      document.getElementById('cfgBike').value = state.bikeType;
+      document.getElementById('cfgCharge').value = state.initialCharge;
+      document.getElementById('cfgChargeVal').innerText = state.initialCharge + '%';
+      document.getElementById('cfgTemp').value = state.tempC;
+      document.getElementById('cfgTempVal').innerText = (state.tempC > 0 ? '+' : '') + state.tempC + '°C';
+      document.getElementById('cfgCargo').value = state.cargoKg;
+      document.getElementById('cfgRider').value = state.riderKg;
+      document.getElementById('cfgWind').value = state.headwindKmh;
+      document.getElementById('cfgWindVal').innerText = state.headwindKmh + ' км/ч';
+      document.getElementById('cfgApiKey').value = state.apiKey === DEFAULT_ORS_KEY ? '' : state.apiKey;
+      settingsModal.classList.remove('hidden');
+    };
+
+    document.getElementById('btnCloseSettings').onclick = () => settingsModal.classList.add('hidden');
+
+    document.getElementById('cfgCharge').oninput = (e) => {
+      document.getElementById('cfgChargeVal').innerText = e.target.value + '%';
+    };
+
+    document.getElementById('cfgTemp').oninput = (e) => {
+      const v = parseInt(e.target.value);
+      document.getElementById('cfgTempVal').innerText = (v > 0 ? '+' : '') + v + '°C';
+      const f = EbikePhysics.getTemperatureCapacityFactor(v);
+      const note = document.getElementById('tempEffectNote');
+      if (v < 0) {
+        note.innerText = `❄️ Мороз! Доступная емкость АКБ падает до ${Math.round(f * 100)}%.`;
+        note.className = "text-[11px] text-rose-500 font-medium mt-1";
+      } else {
+        note.innerText = `Нормальная температура (емкость ${Math.round(f * 100)}%).`;
+        note.className = "text-[11px] text-slate-400 mt-1";
+      }
+    };
+
+    document.getElementById('cfgWind').oninput = (e) => {
+      document.getElementById('cfgWindVal').innerText = e.target.value + ' км/ч';
+    };
+
+    document.getElementById('btnSaveSettings').onclick = () => {
+      state.bikeType = document.getElementById('cfgBike').value;
+      state.initialCharge = parseInt(document.getElementById('cfgCharge').value);
+      state.tempC = parseInt(document.getElementById('cfgTemp').value);
+      state.cargoKg = parseFloat(document.getElementById('cfgCargo').value);
+      state.riderKg = parseFloat(document.getElementById('cfgRider').value);
+      state.headwindKmh = parseInt(document.getElementById('cfgWind').value);
+
+      const customKey = document.getElementById('cfgApiKey').value.trim();
+      if (customKey) {
+        state.apiKey = customKey;
+        localStorage.setItem('ebike_ors_key', customKey);
+      } else {
+        state.apiKey = DEFAULT_ORS_KEY;
+        localStorage.removeItem('ebike_ors_key');
+      }
+
+      settingsModal.classList.add('hidden');
+    };
+  </script>
+</body>
+</html>
