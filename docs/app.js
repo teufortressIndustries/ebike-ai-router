@@ -23,18 +23,32 @@
   };
 
   const DEFAULT_API_URL = 'https://ebike-ai-router.onrender.com';
-  const isLocalFastApi = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && window.location.port === '8000';
-  const DETECTED_API_URL = isLocalFastApi
-    ? window.location.origin
-    : ((window.location.protocol === 'http:' || window.location.protocol === 'https:') && !window.location.hostname.includes('github.io') && window.location.hostname.includes('onrender.com'))
-      ? window.location.origin
-      : DEFAULT_API_URL;
-  let SAVED_API_URL = localStorage.getItem('ebike_api_url');
-  if (SAVED_API_URL && (SAVED_API_URL.includes('localhost:8000') || SAVED_API_URL.includes('127.0.0.1:8000')) && (window.location.hostname.includes('github.io') || window.location.protocol === 'file:')) {
-    localStorage.removeItem('ebike_api_url');
-    SAVED_API_URL = null;
+
+  function getEffectiveApiUrl() {
+    let saved = localStorage.getItem('ebike_api_url');
+    if (saved) {
+      saved = saved.trim().replace(/\/+$/, '');
+      const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (!isLocalHost && (saved.includes('localhost') || saved.includes('127.0.0.1'))) {
+        localStorage.removeItem('ebike_api_url');
+        saved = null;
+      }
+    }
+
+    if (saved && saved !== '') {
+      return saved;
+    }
+
+    // Direct FastAPI backend detection: only if running on port 8000 or on Render host
+    const isDirectBackend = (window.location.port === '8000') || (window.location.hostname && window.location.hostname.includes('onrender.com'));
+    if (isDirectBackend && (window.location.protocol === 'http:' || window.location.protocol === 'https:')) {
+      return window.location.origin.replace(/\/+$/, '');
+    }
+
+    return DEFAULT_API_URL;
   }
-  const ACTIVE_API_URL = ((SAVED_API_URL !== null && SAVED_API_URL.trim() !== '') ? SAVED_API_URL.trim() : DETECTED_API_URL).replace(/\/+$/, '');
+
+  const ACTIVE_API_URL = getEffectiveApiUrl();
 
   let savedCustomBike = null;
   try { savedCustomBike = JSON.parse(localStorage.getItem('ebike_custom_bike')); } catch (e) { }
@@ -229,29 +243,81 @@
     }
   }
 
-  function updateServerStatus(online) {
+  let isCheckingHealth = false;
+  let wakingPollingTimer = null;
+
+  function updateServerStatus(status) {
     const badge = document.getElementById('serverStatusBadge');
     if (!badge) return;
-    if (online) {
-      badge.className = "text-[10px] font-bold px-2 py-1 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1.5 cursor-pointer transition";
-      badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-soft-pulse"></span> <span class="hidden sm:inline">API</span>';
-      badge.title = "FastAPI сервер в сети";
+
+    if (status === 'online' || status === true) {
+      badge.className = "h-8 px-2.5 rounded-xl text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1.5 cursor-pointer flex-shrink-0 transition active:scale-95";
+      badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> <span class="hidden sm:inline">В сети</span>';
+      badge.title = "FastAPI сервер активен (нажмите для проверки)";
+    } else if (status === 'waking') {
+      badge.className = "h-8 px-2.5 rounded-xl text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300 dark:border-amber-700 flex items-center gap-1.5 cursor-pointer flex-shrink-0 transition active:scale-95";
+      badge.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-[10px] text-amber-600 dark:text-amber-400"></i> <span class="hidden sm:inline">Запуск...</span>';
+      badge.title = "Сервер Render просыпается (~30–50 сек). Нажмите для обновления";
     } else {
-      badge.className = "text-[10px] font-bold px-2 py-1 rounded-xl bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1.5 cursor-pointer transition";
+      badge.className = "h-8 px-2.5 rounded-xl text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1.5 cursor-pointer flex-shrink-0 transition active:scale-95";
       badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-500"></span> <span class="hidden sm:inline">Офлайн</span>';
-      badge.title = "FastAPI сервер недоступен";
+      badge.title = "Сервер недоступен. Нажмите, чтобы разбудить";
     }
   }
 
-  async function checkServerHealth() {
+  async function checkServerHealth(userTriggered = false) {
+    if (isCheckingHealth) return;
+    isCheckingHealth = true;
+
+    const targetUrl = (state.apiBaseUrl || DEFAULT_API_URL).replace(/\/+$/, '');
+
+    if (userTriggered) {
+      updateServerStatus('waking');
+      showToast("Отправлен запрос на сервер (пробуждение Render)...", "info", 2500);
+    }
+
     try {
-      const res = await fetch(`${state.apiBaseUrl}/health`, { signal: AbortSignal.timeout(3500) });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(`${targetUrl}/health`, { signal: controller.signal });
+      clearTimeout(timer);
+
       if (res.ok) {
-        updateServerStatus(true);
+        updateServerStatus('online');
+        if (wakingPollingTimer) {
+          clearInterval(wakingPollingTimer);
+          wakingPollingTimer = null;
+        }
+        if (userTriggered) {
+          showToast("Бэкенд в сети и готов к работе!", "success", 3000);
+        }
+        isCheckingHealth = false;
         return true;
       }
-    } catch (e) { }
-    updateServerStatus(false);
+    } catch (e) {
+      // If Render backend is in cold sleep or timing out, start auto-polling until ready
+      if (targetUrl.includes('onrender.com')) {
+        updateServerStatus('waking');
+        if (!wakingPollingTimer) {
+          wakingPollingTimer = setInterval(async () => {
+            try {
+              const res = await fetch(`${targetUrl}/health`, { signal: AbortSignal.timeout(5000) });
+              if (res.ok) {
+                clearInterval(wakingPollingTimer);
+                wakingPollingTimer = null;
+                updateServerStatus('online');
+                showToast("✨ Сервер Render успешно проснулся!", "success", 4000);
+              }
+            } catch (err) { }
+          }, 7000);
+        }
+        isCheckingHealth = false;
+        return false;
+      }
+    }
+
+    updateServerStatus('offline');
+    isCheckingHealth = false;
     return false;
   }
 
@@ -732,7 +798,8 @@
     };
 
     try {
-      const res = await fetch(`${state.apiBaseUrl}/optimize`, {
+      const baseUrl = (state.apiBaseUrl || DEFAULT_API_URL).replace(/\/+$/, '');
+      const res = await fetch(`${baseUrl}/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -757,8 +824,14 @@
       showToast("Маршрут и физика успешно рассчитаны!", "success");
     } catch (err) {
       console.error("Calculate route error:", err);
-      updateServerStatus(false);
-      showToast(`Ошибка расчета: ${err.message}`, "error", 5000);
+      let errMsg = `Ошибка расчета: ${err.message}`;
+      if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
+        updateServerStatus('waking');
+        errMsg = "Сервер Render просыпается после спящего режима (~30–50 сек). Запрос отправлен — подождите полминуты и нажмите «Рассчитать» снова.";
+      } else {
+        updateServerStatus(false);
+      }
+      showToast(errMsg, "error", 7000);
     } finally {
       if (btnCalculate) btnCalculate.disabled = false;
       updateCalculateButton();
@@ -1366,12 +1439,12 @@
       };
     }
 
-    // Server health badge click opens settings
+    // Server health badge click triggers wake-up ping / recheck
     const serverBadge = document.getElementById('serverStatusBadge');
     if (serverBadge) {
-      serverBadge.onclick = () => {
-        checkServerHealth();
-        document.getElementById('btnSettings')?.click();
+      serverBadge.onclick = (e) => {
+        e.stopPropagation();
+        checkServerHealth(true);
       };
     }
 
@@ -1715,7 +1788,8 @@
       };
 
       try {
-        const res = await fetch(`${state.apiBaseUrl}/optimize-order`, {
+        const baseUrl = (state.apiBaseUrl || DEFAULT_API_URL).replace(/\/+$/, '');
+        const res = await fetch(`${baseUrl}/optimize-order`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
@@ -1733,8 +1807,14 @@
         showToast(`✨ ${data.explanation}`, 'success', 5000);
       } catch (err) {
         console.error("TSP error:", err);
-        updateServerStatus(false);
-        showToast(`Ошибка TSP: ${err.message}`, 'error');
+        let errMsg = `Ошибка TSP: ${err.message}`;
+        if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
+          updateServerStatus('waking');
+          errMsg = "Сервер Render просыпается (~30–50 сек). Подождите полминуты и повторите.";
+        } else {
+          updateServerStatus(false);
+        }
+        showToast(errMsg, 'error', 6000);
       } finally {
         btn.disabled = false;
         btn.innerHTML = oldHtml;
@@ -1768,7 +1848,7 @@
       document.getElementById('cfgRider').value = state.riderKg;
       document.getElementById('cfgWind').value = state.headwindKmh;
       document.getElementById('cfgWindVal').innerText = state.headwindKmh + ' км/ч';
-      document.getElementById('cfgApiUrl').value = (state.apiBaseUrl === DETECTED_API_URL) ? '' : state.apiBaseUrl;
+      document.getElementById('cfgApiUrl').value = state.apiBaseUrl || DEFAULT_API_URL;
 
       settingsModal?.classList.remove('hidden');
     });
@@ -1837,11 +1917,13 @@
       state.headwindKmh = parseInt(document.getElementById('cfgWind').value);
 
       const customApi = document.getElementById('cfgApiUrl').value.trim().replace(/\/+$/, '');
-      state.apiBaseUrl = customApi || DETECTED_API_URL;
-      if (customApi) {
-        localStorage.setItem('ebike_api_url', customApi);
-      } else {
+      if (!customApi || customApi === DEFAULT_API_URL) {
+        state.apiBaseUrl = DEFAULT_API_URL;
         localStorage.removeItem('ebike_api_url');
+        document.getElementById('cfgApiUrl').value = DEFAULT_API_URL;
+      } else {
+        state.apiBaseUrl = customApi;
+        localStorage.setItem('ebike_api_url', customApi);
       }
 
       const customBadge = document.getElementById('customBikeBadge');
