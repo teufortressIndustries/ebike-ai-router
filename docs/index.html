@@ -29,10 +29,17 @@
       box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
     }
     .glass-card {
-      background: rgba(255, 255, 255, 0.94);
+      background: rgba(255, 255, 255, 0.95);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.14);
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
     }
   </style>
 </head>
@@ -53,7 +60,7 @@
         <div>
           <div class="flex items-center gap-1.5">
             <h1 class="text-sm font-bold text-slate-800 leading-tight">E-Bike AI Optimizer</h1>
-            <span class="text-[10px] font-bold bg-slate-900 text-white px-1.5 py-0.5 rounded-md">v1.1</span>
+            <span class="text-[10px] font-bold bg-slate-900 text-white px-1.5 py-0.5 rounded-md">v1.2</span>
           </div>
           <p class="text-xs text-slate-500" id="topStatusText">Кликните по карте для расстановки точек</p>
         </div>
@@ -69,12 +76,12 @@
       </div>
     </div>
 
-    <!-- Панель мульти-точек и режима "Туда и обратно" -->
-    <div class="glass-card rounded-2xl p-2 border border-white/70 pointer-events-auto space-y-1.5">
+    <!-- Панель мульти-точек, закладок и режима "Туда и обратно" -->
+    <div class="glass-card rounded-2xl p-2.5 border border-white/70 pointer-events-auto space-y-2">
       <!-- Селектор режима добавления точек -->
       <div class="flex gap-1 text-[11px] font-medium">
         <button id="modeStart" class="flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 bg-emerald-500 text-white shadow-sm transition">
-          <span class="w-2 h-2 rounded-full bg-white"></span> Депо 🟢
+          <span class="w-2 h-2 rounded-full bg-white"></span> Старт 🟢
         </button>
         <button id="modeAddStop" class="flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 text-slate-600 hover:bg-slate-100 transition">
           <i class="fa-solid fa-plus text-[10px]"></i> Заказ 🔵
@@ -84,18 +91,47 @@
         </button>
       </div>
 
-      <!-- Переключатель "Туда и обратно" (Round Trip) и очистка -->
-      <div class="flex items-center justify-between pt-1 border-t border-slate-100 px-1 text-xs">
+      <!-- Лента активных промежуточных точек с кнопками удаления (✕) -->
+      <div id="activeWaypointsStrip" class="hidden pt-1 border-t border-slate-100">
+        <div class="flex items-center justify-between mb-1 px-1">
+          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Точки доставок:</span>
+          <span class="text-[10px] text-slate-400" id="waypointsCount">0 точек</span>
+        </div>
+        <div id="waypointsChips" class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5 px-0.5"></div>
+      </div>
+
+      <!-- Лента избранных закладок (Избранные локации) -->
+      <div class="pt-1 border-t border-slate-100">
+        <div class="flex items-center justify-between mb-1 px-1">
+          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+            <i class="fa-solid fa-bookmark text-amber-500"></i> Закладки
+          </span>
+          <button id="btnAddBookmark" class="text-[10px] text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-0.5">
+            <i class="fa-solid fa-plus text-[9px]"></i> Сохранить текущую
+          </button>
+        </div>
+        <div id="bookmarksList" class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5 px-0.5">
+          <!-- Карточки закладок генерируются динамически через JS -->
+        </div>
+      </div>
+
+      <!-- Переключатель "Туда и обратно" (Round Trip), отмена и очистка -->
+      <div class="flex items-center justify-between pt-1.5 border-t border-slate-100 px-1 text-xs">
         <label class="flex items-center gap-2 cursor-pointer select-none">
           <input type="checkbox" id="toggleRoundTrip" class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-500">
           <span class="font-semibold text-slate-700 flex items-center gap-1">
-            <i class="fa-solid fa-rotate-left text-[11px] text-emerald-600"></i> Туда и обратно (в депо)
+            <i class="fa-solid fa-rotate-left text-[11px] text-emerald-600"></i> Туда и обратно (на Старт)
           </span>
         </label>
         
-        <button id="btnClearStops" class="text-[11px] text-rose-500 hover:text-rose-700 font-medium flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-rose-50 transition">
-          <i class="fa-regular fa-trash-can"></i> Сброс
-        </button>
+        <div class="flex items-center gap-1.5">
+          <button id="btnUndoStop" title="Удалить последнюю добавленную точку" class="text-[11px] text-slate-500 hover:text-slate-800 font-medium flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-slate-100 transition">
+            <i class="fa-solid fa-arrow-rotate-left text-[10px]"></i> Назад
+          </button>
+          <button id="btnClearStops" class="text-[11px] text-rose-500 hover:text-rose-700 font-medium flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-rose-50 transition">
+            <i class="fa-regular fa-trash-can text-[10px]"></i> Сброс
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -118,7 +154,7 @@
         <div class="flex items-center gap-2">
           <h2 class="text-base font-bold text-slate-800">Результаты расчета</h2>
           <span id="badgeRoundTrip" class="hidden text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
-            🔄 Возврат на базу
+            🔄 Возврат на Старт
           </span>
         </div>
         <p class="text-xs text-slate-500" id="routeSubhead">Оценка расхода батареи с учетом рельефа и веса</p>
@@ -177,8 +213,11 @@
     </div>
 
     <!-- Раскрывающийся блок детализации сегментов и физики -->
-    <details class="text-xs text-slate-600 bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 cursor-pointer">
-      <summary class="font-semibold text-slate-700 select-none">🔬 Посегментный расход и физика (куда ушла энергия)</summary>
+    <details class="text-xs text-slate-600 bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 cursor-pointer" open>
+      <summary class="font-semibold text-slate-700 select-none flex items-center justify-between">
+        <span>📍 Отрезки пути и направление движения</span>
+        <span class="text-[10px] text-slate-400 font-normal">клик для скрытия</span>
+      </summary>
       <div class="mt-2.5 space-y-2 pt-2 border-t border-slate-200 text-[11px]" id="segmentsListContainer"></div>
       <div class="mt-2 pt-2 border-t border-slate-200 space-y-1 text-[11px]" id="energyBreakdownList"></div>
     </details>
@@ -298,7 +337,7 @@
     </div>
   </div>
 
-  <!-- JavaScript: Логика Мульти-точек, Round-trip, Гаража и Профиля высот -->
+  <!-- JavaScript: Логика Мульти-точек, Направления, Стрелок, Закладок и Гаража -->
   <script>
     const DEFAULT_ORS_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjdhN2FlNzVjNDkyZTRkNmJiOTc0OWZkYWI5MWZiMzBjIiwiaCI6Im11cm11cjY0In0=";
 
@@ -308,11 +347,30 @@
       city_compact: { name: "Городской легкий", capacityWh: 374.4, weightKg: 20, desc: "36V 10.4Ah" }
     };
 
-    // Загрузка кастомного байка из LocalStorage
+    // Цвета для отрезков маршрута (чтобы легко отличать направление каждого этапа)
+    const LEG_COLORS = [
+      '#2563EB', // Отрезок 1: Синий
+      '#9333EA', // Отрезок 2: Фиолетовый
+      '#D97706', // Отрезок 3: Янтарный
+      '#DB2777', // Отрезок 4: Малиновый
+      '#0891B2', // Отрезок 5: Бирюзовый
+      '#EA580C', // Отрезок 6: Оранжевый
+    ];
+    const RETURN_LEG_COLOR = '#059669'; // Изумрудный для возврата на Старт
+
+    // Загрузка кастомного байка и закладок из LocalStorage
     let savedCustomBike = null;
-    try {
-      savedCustomBike = JSON.parse(localStorage.getItem('ebike_custom_bike'));
-    } catch(e) {}
+    try { savedCustomBike = JSON.parse(localStorage.getItem('ebike_custom_bike')); } catch(e) {}
+
+    const DEFAULT_BOOKMARKS = [
+      { id: 'b1', name: 'Склад / База', icon: 'fa-warehouse', lat: 49.8019, lon: 73.1021 },
+      { id: 'b2', name: 'Дом', icon: 'fa-house', lat: 49.7900, lon: 73.1100 },
+      { id: 'b3', name: 'Центр / Хаб', icon: 'fa-store', lat: 49.7960, lon: 73.1080 }
+    ];
+
+    let savedBookmarks = null;
+    try { savedBookmarks = JSON.parse(localStorage.getItem('ebike_bookmarks')); } catch(e) {}
+    let bookmarks = (savedBookmarks && savedBookmarks.length > 0) ? savedBookmarks : DEFAULT_BOOKMARKS;
 
     // ------------------- Состояние приложения -------------------
     let state = {
@@ -320,7 +378,7 @@
       isRoundTrip: false,
       startPoint: [49.8019, 73.1021], // [lat, lon]
       waypoints: [
-        [49.7960, 73.1080] // Заказ 1 по умолчанию
+        [49.7960, 73.1080] // Заказ 1
       ],
       endPoint: [49.7900, 73.1100],
       bikeType: savedCustomBike ? 'custom' : 'courier_standard',
@@ -344,16 +402,15 @@
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     }).addTo(map);
 
-    // Хранилище маркеров и линий маршрутов
     let mapMarkers = [];
-    let routePolylines = [];
+    let routeLayersGroup = L.layerGroup().addTo(map);
 
-    // Создание кастомных HTML-маркеров
+    // Маркеры точек
     function createMarkerIcon(type, number = 1) {
       if (type === 'start') {
         return L.divIcon({
           className: '',
-          html: '<div style="background:#10b981; width:34px; height:34px; border-radius:50%; border:3px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:white; font-size:13px;"><i class="fa-solid fa-warehouse"></i></div>',
+          html: '<div style="background:#10b981; width:34px; height:34px; border-radius:50%; border:3px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:white; font-size:13px;"><i class="fa-solid fa-play" style="margin-left:2px;"></i></div>',
           iconSize: [34, 34],
           iconAnchor: [17, 17]
         });
@@ -374,43 +431,144 @@
       }
     }
 
-    // Перерисовка маркеров на карте
     function refreshMarkers() {
       mapMarkers.forEach(m => map.removeLayer(m));
       mapMarkers = [];
 
-      // Маркер старта (Депо)
+      // Старт
       const sm = L.marker(state.startPoint, { icon: createMarkerIcon('start'), draggable: true }).addTo(map);
-      sm.bindTooltip("Депо / База 🟢");
+      sm.bindTooltip("Точка Старта 🟢");
       sm.on('dragend', (e) => {
         state.startPoint = [e.target.getLatLng().lat, e.target.getLatLng().lng];
       });
       mapMarkers.push(sm);
 
-      // Промежуточные точки доставок
+      // Промежуточные заказы
       state.waypoints.forEach((wp, idx) => {
         const wm = L.marker(wp, { icon: createMarkerIcon('waypoint', idx + 1), draggable: true }).addTo(map);
-        wm.bindTooltip(`Заказ #${idx + 1} 🔵`);
+        wm.bindTooltip(`Заказ #${idx + 1} 🔵 (кликните для удаления)`);
+        
+        // Попап с кнопкой индивидуального удаления конкретной точки
+        wm.bindPopup(`
+          <div style="min-width: 140px; text-align: center; padding: 4px;">
+            <b style="font-size: 13px; color: #1e293b;">Заказ #${idx + 1} 🔵</b>
+            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">${wp[0].toFixed(4)}, ${wp[1].toFixed(4)}</div>
+            <button onclick="removeWaypoint(${idx})" style="margin-top: 8px; width: 100%; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; border-radius: 8px; padding: 6px 10px; font-weight: bold; font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
+              <i class="fa-solid fa-trash-can"></i> Удалить эту точку
+            </button>
+          </div>
+        `);
+
         wm.on('dragend', (e) => {
           state.waypoints[idx] = [e.target.getLatLng().lat, e.target.getLatLng().lng];
         });
         mapMarkers.push(wm);
       });
 
-      // Маркер финиша (если не закольцован в депо)
+      // Финиш (если не закольцовано)
       if (!state.isRoundTrip) {
         const em = L.marker(state.endPoint, { icon: createMarkerIcon('end'), draggable: true }).addTo(map);
-        em.bindTooltip("Финальная точка 🔴");
+        em.bindTooltip("Финиш 🔴");
         em.on('dragend', (e) => {
           state.endPoint = [e.target.getLatLng().lat, e.target.getLatLng().lng];
         });
         mapMarkers.push(em);
       }
+
+      renderWaypointsChips();
     }
+
+    // Рендер чипов промежуточных точек в верхней панели
+    function renderWaypointsChips() {
+      const strip = document.getElementById('activeWaypointsStrip');
+      const container = document.getElementById('waypointsChips');
+      const countEl = document.getElementById('waypointsCount');
+      if (!strip || !container) return;
+
+      if (state.waypoints.length === 0) {
+        strip.classList.add('hidden');
+        return;
+      }
+
+      strip.classList.remove('hidden');
+      countEl.innerText = `${state.waypoints.length} ${state.waypoints.length === 1 ? 'заказ' : (state.waypoints.length < 5 ? 'заказа' : 'заказов')}`;
+      container.innerHTML = state.waypoints.map((wp, idx) => `
+        <div class="flex items-center gap-1.5 bg-blue-50 text-blue-800 border border-blue-200/80 rounded-lg px-2 py-0.5 text-[11px] font-semibold flex-shrink-0 shadow-xs">
+          <span>🔵 Заказ #${idx + 1}</span>
+          <button onclick="removeWaypoint(${idx})" title="Удалить эту точку" class="text-blue-400 hover:text-rose-600 p-0.5 rounded transition">
+            <i class="fa-solid fa-xmark text-[10px]"></i>
+          </button>
+        </div>
+      `).join('');
+    }
+
+    // Удаление конкретной промежуточной точки по индексу
+    window.removeWaypoint = function(idx) {
+      if (idx >= 0 && idx < state.waypoints.length) {
+        state.waypoints.splice(idx, 1);
+        refreshMarkers();
+      }
+    };
 
     refreshMarkers();
 
-    // ------------------- Обработка кликов по карте -------------------
+    // ------------------- Закладки (Избранные места) -------------------
+    const bookmarksList = document.getElementById('bookmarksList');
+
+    function renderBookmarks() {
+      bookmarksList.innerHTML = bookmarks.map(b => `
+        <div class="flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-xl px-2.5 py-1 shadow-sm transition active:scale-95 cursor-pointer whitespace-nowrap">
+          <div onclick="selectBookmark(${b.lat}, ${b.lon})" class="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+            <i class="fa-solid ${b.icon || 'fa-location-dot'} text-amber-500 text-[11px]"></i>
+            <span>${b.name}</span>
+          </div>
+          <button onclick="removeBookmark('${b.id}', event)" class="text-slate-300 hover:text-rose-500 ml-1 text-[10px] p-0.5">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      `).join('');
+    }
+
+    window.selectBookmark = function(lat, lon) {
+      if (state.clickMode === 'start') {
+        state.startPoint = [lat, lon];
+        setClickMode('add_stop');
+      } else if (state.clickMode === 'add_stop') {
+        state.waypoints.push([lat, lon]);
+      } else if (state.clickMode === 'end') {
+        state.endPoint = [lat, lon];
+        setClickMode('add_stop');
+      }
+      map.panTo([lat, lon]);
+      refreshMarkers();
+    };
+
+    window.removeBookmark = function(id, e) {
+      e.stopPropagation();
+      bookmarks = bookmarks.filter(b => b.id !== id);
+      localStorage.setItem('ebike_bookmarks', JSON.stringify(bookmarks));
+      renderBookmarks();
+    };
+
+    document.getElementById('btnAddBookmark').onclick = () => {
+      const name = prompt("Введите название закладки для текущей точки Старта:", "Моя база");
+      if (name && name.trim()) {
+        const newBm = {
+          id: 'bm_' + Date.now(),
+          name: name.trim(),
+          icon: 'fa-star',
+          lat: state.startPoint[0],
+          lon: state.startPoint[1]
+        };
+        bookmarks.push(newBm);
+        localStorage.setItem('ebike_bookmarks', JSON.stringify(bookmarks));
+        renderBookmarks();
+      }
+    };
+
+    renderBookmarks();
+
+    // ------------------- Клики по карте -------------------
     map.on('click', (e) => {
       const lat = parseFloat(e.latlng.lat.toFixed(6));
       const lng = parseFloat(e.latlng.lng.toFixed(6));
@@ -427,7 +585,6 @@
       refreshMarkers();
     });
 
-    // Управление режимами кнопок
     const modeStartBtn = document.getElementById('modeStart');
     const modeAddStopBtn = document.getElementById('modeAddStop');
     const modeEndBtn = document.getElementById('modeEnd');
@@ -441,7 +598,7 @@
 
       if (mode === 'start') {
         modeStartBtn.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 bg-emerald-500 text-white shadow-sm transition";
-        topStatusText.innerText = "Кликните для выбора Депо (Базы) 🟢";
+        topStatusText.innerText = "Кликните для выбора точки Старта 🟢";
       } else if (mode === 'add_stop') {
         modeAddStopBtn.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 bg-blue-600 text-white shadow-sm transition";
         topStatusText.innerText = `Добавление точек заказов 🔵 (уже ${state.waypoints.length})`;
@@ -455,14 +612,21 @@
     modeAddStopBtn.onclick = () => setClickMode('add_stop');
     modeEndBtn.onclick = () => setClickMode('end');
 
-    // Очистка промежуточных точек
+    // Отмена последней добавленной точки (Назад)
+    document.getElementById('btnUndoStop').onclick = () => {
+      if (state.waypoints.length > 0) {
+        state.waypoints.pop();
+        refreshMarkers();
+      }
+    };
+
     document.getElementById('btnClearStops').onclick = () => {
       state.waypoints = [];
       refreshMarkers();
       setClickMode('add_stop');
     };
 
-    // Тумблер "Туда и обратно" (Round trip)
+    // Тумблер "Туда и обратно"
     const toggleRoundTrip = document.getElementById('toggleRoundTrip');
     toggleRoundTrip.onchange = (e) => {
       state.isRoundTrip = e.target.checked;
@@ -538,7 +702,6 @@
         elevation: true
       };
 
-      // Альтернативы только если ровно 2 точки
       if (coords.length === 2) {
         body.alternative_routes = { target_count: 2, share_factor: 0.8, weight_factor: 1.6 };
       }
@@ -560,15 +723,23 @@
       return await res.json();
     }
 
-    // ------------------- Расчет маршрута по кнопке -------------------
+    // Вспомогательная функция вычисления азимута (направления) между 2 точками
+    function calculateBearing(lat1, lon1, lat2, lon2) {
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+      const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+      return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    // ------------------- Расчет маршрута -------------------
     const btnCalculate = document.getElementById('btnCalculate');
     const resultsCard = document.getElementById('resultsCard');
 
     btnCalculate.onclick = async () => {
-      // Собираем все точки маршрута
       const allPoints = [state.startPoint, ...state.waypoints];
       if (state.isRoundTrip) {
-        allPoints.push(state.startPoint); // возврат в исходное депо
+        allPoints.push(state.startPoint);
       } else {
         allPoints.push(state.endPoint);
       }
@@ -581,7 +752,6 @@
         const features = data.features;
         if (!features || features.length === 0) throw new Error("Маршрут не найден");
 
-        // Определение параметров байка (пресет или кастом)
         let capacityWh = 720;
         let bikeWeightKg = 32;
         if (state.bikeType === 'custom') {
@@ -598,7 +768,7 @@
 
         state.calculatedRoutes = features.map((feat, rIdx) => {
           const segments = feat.properties.segments;
-          const coords = feat.geometry.coordinates;
+          const coords = feat.geometry.coordinates; // [lon, lat, ele]
 
           let totalDistKm = 0;
           let totalAscentM = 0;
@@ -614,15 +784,18 @@
           const numSegs = segments.length;
           const deliveryCount = Math.max(1, state.isRoundTrip ? numSegs - 1 : numSegs);
 
+          // Извлечение точных срезов координат для каждого отрезка
+          const legSegments = [];
+
           segments.forEach((s, sIdx) => {
             const dKm = s.distance / 1000.0;
             const asc = s.ascent || 0;
             const desc = s.descent || 0;
 
-            // Вес короба: на возврате в депо сумка пуста (0 кг), иначе постепенная разгрузка
+            const isReturn = state.isRoundTrip && (sIdx === numSegs - 1);
             let cargoCurrent = 0;
-            if (state.isRoundTrip && sIdx === numSegs - 1) {
-              cargoCurrent = 0;
+            if (isReturn) {
+              cargoCurrent = 0; // налегке
             } else {
               cargoCurrent = state.cargoKg * Math.max(0, (1 - (sIdx / deliveryCount)));
             }
@@ -642,17 +815,37 @@
             aeroWhSum += calc.aeroWh;
             climbWhSum += calc.climbWh;
 
-            segBreakdown.push({
+            // Индексы точек этого отрезка в полном массиве координат
+            const startWp = s.steps[0].way_points[0];
+            const endWp = s.steps[s.steps.length - 1].way_points[1];
+            const legCoords = coords.slice(startWp, endWp + 1).map(c => [c[1], c[0]]);
+
+            const legColor = isReturn ? RETURN_LEG_COLOR : LEG_COLORS[sIdx % LEG_COLORS.length];
+
+            legSegments.push({
               idx: sIdx + 1,
+              name: isReturn ? "Возврат на Старт" : (sIdx === 0 ? "Старт ➔ Заказ #1" : `Заказ #${sIdx} ➔ #${sIdx + 1}`),
+              color: legColor,
+              coords: legCoords,
               distKm: parseFloat(dKm.toFixed(2)),
               ascentM: Math.round(asc),
               cargoKg: parseFloat(cargoCurrent.toFixed(1)),
               wh: parseFloat(calc.wh.toFixed(1)),
-              isReturn: state.isRoundTrip && (sIdx === numSegs - 1)
+              isReturn
+            });
+
+            segBreakdown.push({
+              idx: sIdx + 1,
+              color: legColor,
+              distKm: parseFloat(dKm.toFixed(2)),
+              ascentM: Math.round(asc),
+              cargoKg: parseFloat(cargoCurrent.toFixed(1)),
+              wh: parseFloat(calc.wh.toFixed(1)),
+              isReturn
             });
           });
 
-          // Профиль высот (сэмплирование)
+          // Профиль высот
           const elevationProfile = [];
           let cumDist = 0;
           for (let i = 0; i < coords.length; i++) {
@@ -676,7 +869,8 @@
           return {
             name: rIdx === 0 ? "Основной маршрут" : "Альтернативный",
             isEco: rIdx > 0,
-            geometry: coords.map(c => [c[1], c[0]]),
+            legSegments,
+            allCoords: coords.map(c => [c[1], c[0]]),
             elevationProfile,
             distKm: parseFloat(totalDistKm.toFixed(2)),
             ascentM: Math.round(totalAscentM),
@@ -692,7 +886,7 @@
           };
         });
 
-        renderRouteLines(state.calculatedRoutes);
+        renderRouteLines(state.calculatedRoutes[0]);
         displayResults(0);
       } catch(err) {
         alert("Ошибка построения маршрута: " + err.message);
@@ -702,36 +896,56 @@
       }
     };
 
-    // Отрисовка линий на карте
-    function renderRouteLines(routes) {
-      routePolylines.forEach(p => map.removeLayer(p));
-      routePolylines = [];
-      const colors = ['#0066FF', '#10B981'];
+    // Отрисовка цветных отрезков со стрелочками направления движения
+    function renderRouteLines(route) {
+      routeLayersGroup.clearLayers();
 
-      routes.forEach((r, idx) => {
-        const isSel = idx === state.selectedRouteIdx;
-        const line = L.polyline(r.geometry, {
-          color: colors[idx % colors.length],
-          weight: isSel ? 6 : 4,
-          opacity: isSel ? 0.9 : 0.4
-        }).addTo(map);
-        routePolylines.push(line);
+      if (!route || !route.legSegments) return;
+
+      route.legSegments.forEach((leg) => {
+        // Линия отрезка с индивидуальным цветом
+        const poly = L.polyline(leg.coords, {
+          color: leg.color,
+          weight: 6,
+          opacity: 0.85,
+          dashArray: leg.isReturn ? '8, 8' : null
+        }).addTo(routeLayersGroup);
+
+        poly.bindTooltip(`<b>${leg.name}</b><br>Дистанция: ${leg.distKm} км | Расход: ${leg.wh} Вт·ч`, { sticky: true });
+
+        // Размещение стрелок направления движения по ходу трека
+        const step = Math.max(6, Math.floor(leg.coords.length / 4));
+        for (let i = Math.floor(step / 2); i < leg.coords.length - 1; i += step) {
+          const p1 = leg.coords[i];
+          const p2 = leg.coords[i + 1];
+          const angle = calculateBearing(p1[0], p1[1], p2[0], p2[1]);
+
+          const arrowIcon = L.divIcon({
+            className: '',
+            html: `<div style="transform: rotate(${angle}deg); width:18px; height:18px; display:flex; align-items:center; justify-content:center;">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="${leg.color}">
+                <path d="M12 2L4 20l8-4 8 4z" stroke="#ffffff" stroke-width="1.5"/>
+              </svg>
+            </div>`,
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
+          });
+
+          L.marker(p1, { icon: arrowIcon, interactive: false }).addTo(routeLayersGroup);
+        }
       });
 
-      if (routes[0]?.geometry?.length > 0) {
-        map.fitBounds(L.latLngBounds(routes[0].geometry), { padding: [50, 50] });
+      if (route.allCoords && route.allCoords.length > 0) {
+        map.fitBounds(L.latLngBounds(route.allCoords), { padding: [50, 50] });
       }
     }
 
-    // Отображение результатов и генерация графика высот
+    // Отображение карточки результатов
     function displayResults(idx) {
       state.selectedRouteIdx = idx;
       const r = state.calculatedRoutes[idx];
 
-      // Переключение стиля линий
-      routePolylines.forEach((line, i) => {
-        line.setStyle({ weight: i === idx ? 6 : 4, opacity: i === idx ? 0.9 : 0.4 });
-      });
+      renderRouteLines(r);
 
       // Бейдж "Туда и обратно"
       document.getElementById('badgeRoundTrip').className = state.isRoundTrip
@@ -756,10 +970,10 @@
       const banner = document.getElementById('safetyBanner');
       if (r.safety === 'critical') {
         banner.className = "p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5 bg-rose-100 text-rose-800 border border-rose-200";
-        banner.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-base"></i><div><b>КРИТИЧЕСКИЙ РАЗРЯД!</b> Батареи не хватит (${r.energyPercent}% расхода при остатке ${state.initialCharge}%). Срочно замените батарею в депо!</div>`;
+        banner.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-base"></i><div><b>КРИТИЧЕСКИЙ РАЗРЯД!</b> Батареи не хватит (${r.energyPercent}% расхода при остатке ${state.initialCharge}%). Необходима подзарядка!</div>`;
       } else if (r.safety === 'warning') {
         banner.className = "p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5 bg-amber-100 text-amber-800 border border-amber-200";
-        banner.innerHTML = `<i class="fa-solid fa-circle-exclamation text-base"></i><div><b>Внимание:</b> останется всего ${r.finalCharge}% заряда. Рекомендуется экономичный темп без резких ускорений.</div>`;
+        banner.innerHTML = `<i class="fa-solid fa-circle-exclamation text-base"></i><div><b>Внимание:</b> останется всего ${r.finalCharge}% заряда. Рекомендуется экономичный темп.</div>`;
       } else {
         banner.className = "p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5 bg-emerald-100 text-emerald-800 border border-emerald-200";
         banner.innerHTML = `<i class="fa-solid fa-circle-check text-base"></i><div><b>Маршрут безопасен:</b> заряда хватит с хорошим запасом. Остаток после смены: <b>${r.finalCharge}%</b>.</div>`;
@@ -773,24 +987,25 @@
       document.getElementById('resFinalCharge').innerText = r.finalCharge + '%';
       document.getElementById('resEffectiveCap').innerText = 'Эфф. емкость: ' + r.effectiveCapWh + ' Вт·ч';
 
-      // Рендер SVG-графика высоты
       renderElevationSvg(r.elevationProfile);
 
-      // Посегментный отчет
+      // Посегментный отчет с цветными бейджами направления
       const segContainer = document.getElementById('segmentsListContainer');
       segContainer.innerHTML = r.segBreakdown.map(s => `
-        <div class="flex justify-between items-center p-1.5 rounded-lg bg-white border border-slate-100">
-          <div>
-            <b class="text-slate-800">${s.isReturn ? '🔄 Возврат в депо' : `📦 Заказ #${s.idx}`}</b>
-            <span class="text-slate-400 text-[10px]">(${s.distKm} км, груз: ${s.cargoKg} кг)</span>
+        <div class="flex justify-between items-center p-2 rounded-xl bg-white border border-slate-200/80 shadow-xs">
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: ${s.color};"></span>
+            <div>
+              <b class="text-slate-800 text-xs">${s.isReturn ? '🔄 Возврат на Старт' : `📦 Отрезок #${s.idx}`}</b>
+              <div class="text-slate-400 text-[10px]">${s.distKm} км • Груз: ${s.cargoKg} кг • Подъем +${s.ascentM}м</div>
+            </div>
           </div>
-          <div class="text-right font-bold text-slate-700">
-            ${s.wh} Вт·ч <span class="text-[10px] text-slate-400 font-normal">(+${s.ascentM}м)</span>
+          <div class="text-right font-bold text-slate-800 text-xs">
+            ${s.wh} Вт·ч
           </div>
         </div>
       `).join('');
 
-      // Физика
       document.getElementById('energyBreakdownList').innerHTML = `
         <div class="flex justify-between"><span>Качение шин:</span><b>${r.details.rollingWh} Вт·ч</b></div>
         <div class="flex justify-between"><span>Сопротивление воздуха (короб):</span><b>${r.details.aeroWh} Вт·ч</b></div>
@@ -801,7 +1016,7 @@
       resultsCard.classList.remove('hidden');
     }
 
-    // Построение SVG-графика рельефа
+    // Построение SVG-графика высот
     function renderElevationSvg(profile) {
       const svg = document.getElementById('elevationSvg');
       if (!profile || profile.length < 2) {
@@ -846,7 +1061,7 @@
     document.getElementById('closeResults').onclick = () => resultsCard.classList.add('hidden');
     document.getElementById('btnCloseResults').onclick = () => resultsCard.classList.add('hidden');
 
-    // ------------------- Модалка настроек (Гараж) -------------------
+    // ------------------- Настройки Гаража -------------------
     const settingsModal = document.getElementById('settingsModal');
     const cfgBike = document.getElementById('cfgBike');
     const customBikeBox = document.getElementById('customBikeBox');
