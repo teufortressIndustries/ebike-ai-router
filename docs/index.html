@@ -120,8 +120,10 @@
       <!-- Лента активных промежуточных точек с кнопками удаления (✕) -->
       <div id="activeWaypointsStrip" class="hidden pt-1 border-t border-slate-100">
         <div class="flex items-center justify-between mb-1 px-1">
-          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Точки доставок:</span>
-          <span class="text-[10px] text-slate-400" id="waypointsCount">0 точек</span>
+          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider" id="waypointsCount">Точки доставок:</span>
+          <button id="btnOptimizeOrder" title="Переставить адреса так, чтобы везти тяжелый груз под гору и тратить меньше батареи" class="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 py-0.5 px-1.5 rounded-md hover:bg-blue-50 transition active:scale-95">
+            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i> <span>Оптимизировать порядок</span>
+          </button>
         </div>
         <div id="waypointsChips" class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5 px-0.5"></div>
       </div>
@@ -247,6 +249,12 @@
       <div class="mt-2.5 space-y-2 pt-2 border-t border-slate-200 text-[11px]" id="segmentsListContainer"></div>
       <div class="mt-2 pt-2 border-t border-slate-200 space-y-1 text-[11px]" id="energyBreakdownList"></div>
     </details>
+
+    <!-- Экспорт маршрута в GPX для внешних навигаторов (2ГИС, Яндекс, OsmAnd) -->
+    <button id="btnExportGpx" class="w-full mt-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2.5 px-3 rounded-xl border border-slate-200/90 text-xs flex items-center justify-center gap-2 transition active:scale-[0.98]">
+      <i class="fa-solid fa-file-arrow-down text-blue-600"></i>
+      <span>📲 Скачать GPX (Открыть в 2ГИС / Яндекс / OsmAnd)</span>
+    </button>
   </div>
 
   <!-- Модальное окно настроек: Кастомный гараж курьера и условия -->
@@ -484,9 +492,10 @@
           iconAnchor: [17, 17]
         });
       } else {
+        const markerColor = LEG_COLORS[(number - 1) % LEG_COLORS.length] || '#2563eb';
         return L.divIcon({
           className: '',
-          html: `<div style="background:#2563eb; width:30px; height:30px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:12px;">${number}</div>`,
+          html: `<div style="background:${markerColor}; width:30px; height:30px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:12px;">${number}</div>`,
           iconSize: [30, 30],
           iconAnchor: [15, 15]
         });
@@ -554,14 +563,18 @@
 
       strip.classList.remove('hidden');
       countEl.innerText = `${state.waypoints.length} ${state.waypoints.length === 1 ? 'заказ' : (state.waypoints.length < 5 ? 'заказа' : 'заказов')}`;
-      container.innerHTML = state.waypoints.map((wp, idx) => `
-        <div class="flex items-center gap-1.5 bg-blue-50 text-blue-800 border border-blue-200/80 rounded-lg px-2 py-0.5 text-[11px] font-semibold flex-shrink-0 shadow-xs">
-          <span>🔵 Заказ #${idx + 1}</span>
-          <button onclick="removeWaypoint(${idx})" title="Удалить эту точку" class="text-blue-400 hover:text-rose-600 p-0.5 rounded transition">
-            <i class="fa-solid fa-xmark text-[10px]"></i>
-          </button>
-        </div>
-      `).join('');
+      container.innerHTML = state.waypoints.map((wp, idx) => {
+        const markerColor = LEG_COLORS[idx % LEG_COLORS.length] || '#2563eb';
+        return `
+          <div class="flex items-center gap-1.5 bg-white text-slate-800 border border-slate-200/90 rounded-lg px-2 py-0.5 text-[11px] font-semibold flex-shrink-0 shadow-xs">
+            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${markerColor};"></span>
+            <span>Заказ #${idx + 1}</span>
+            <button onclick="removeWaypoint(${idx})" title="Удалить эту точку" class="text-slate-300 hover:text-rose-600 p-0.5 rounded transition">
+              <i class="fa-solid fa-xmark text-[10px]"></i>
+            </button>
+          </div>
+        `;
+      }).join('');
     }
 
     // Удаление конкретной промежуточной точки по индексу
@@ -1477,6 +1490,135 @@
 
       updateCustomBikeBadge();
       settingsModal.classList.add('hidden');
+    };
+
+    // ------------------- Экспорт маршрута в GPX (Открыть в навигаторе) -------------------
+    document.getElementById('btnExportGpx').onclick = () => {
+      if (!state.calculatedRoutes || state.calculatedRoutes.length === 0) return;
+      const r = state.calculatedRoutes[state.selectedRouteIdx];
+      if (!r || !r.allCoords || r.allCoords.length === 0) return;
+
+      const now = new Date().toISOString();
+      let gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="EBike-AI-Router" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>${r.name} (${r.distKm} km, ${r.energyWh} Wh)</name>
+    <time>${now}</time>
+  </metadata>
+  <wpt lat="${state.startPoint[0]}" lon="${state.startPoint[1]}"><name>Старт</name></wpt>\n`;
+
+      state.waypoints.forEach((wp, idx) => {
+        gpx += `  <wpt lat="${wp[0]}" lon="${wp[1]}"><name>Заказ #${idx + 1}</name></wpt>\n`;
+      });
+
+      if (!state.isRoundTrip) {
+        gpx += `  <wpt lat="${state.endPoint[0]}" lon="${state.endPoint[1]}"><name>Финиш</name></wpt>\n`;
+      }
+
+      gpx += `  <trk>\n    <name>${r.name}</name>\n    <trkseg>\n`;
+      r.allCoords.forEach((pt) => {
+        gpx += `      <trkpt lat="${pt[0]}" lon="${pt[1]}"></trkpt>\n`;
+      });
+      gpx += `    </trkseg>\n  </trk>\n</gpx>`;
+
+      const blob = new Blob([gpx], { type: 'application/gpx+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ebike_route_${Date.now()}.gpx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+
+    // ------------------- Energy-Aware TSP (Оптимизация порядка доставок) -------------------
+    document.getElementById('btnOptimizeOrder').onclick = () => {
+      const n = state.waypoints.length;
+      if (n < 2) {
+        alert("Для оптимизации порядка добавьте хотя бы 2 заказа.");
+        return;
+      }
+
+      function permute(arr) {
+        if (arr.length <= 1) return [arr];
+        const res = [];
+        for (let i = 0; i < arr.length; i++) {
+          const current = arr[i];
+          const rem = arr.slice(0, i).concat(arr.slice(i + 1));
+          for (const p of permute(rem)) {
+            res.push([current].concat(p));
+          }
+        }
+        return res;
+      }
+
+      function distEst(p1, p2) {
+        const dLat = (p2[0] - p1[0]) * 111.0;
+        const dLon = (p2[1] - p1[1]) * 71.5;
+        return Math.sqrt(dLat * dLat + dLon * dLon);
+      }
+
+      function evaluateOrderEnergy(orderIndices) {
+        let prevPoint = state.startPoint;
+        let totalEnergy = 0;
+        const totalCargo = state.cargoKg;
+        const count = orderIndices.length;
+
+        for (let i = 0; i < count; i++) {
+          const currentPoint = state.waypoints[orderIndices[i]];
+          const dist = distEst(prevPoint, currentPoint);
+          const currentCargo = totalCargo * Math.max(0, (1 - (i / count)));
+          const totalMass = 32 + 75 + currentCargo;
+          totalEnergy += dist * totalMass;
+          prevPoint = currentPoint;
+        }
+
+        const finalPoint = state.isRoundTrip ? state.startPoint : state.endPoint;
+        const returnDist = distEst(prevPoint, finalPoint);
+        totalEnergy += returnDist * (32 + 75 + 0);
+
+        return totalEnergy;
+      }
+
+      let bestOrder = null;
+      let minEnergy = Infinity;
+
+      if (n <= 7) {
+        const initialIndices = Array.from({ length: n }, (_, i) => i);
+        const allPerms = permute(initialIndices);
+        for (const p of allPerms) {
+          const score = evaluateOrderEnergy(p);
+          if (score < minEnergy) {
+            minEnergy = score;
+            bestOrder = p;
+          }
+        }
+      } else {
+        const unvisited = Array.from({ length: n }, (_, i) => i);
+        bestOrder = [];
+        let curr = state.startPoint;
+        while (unvisited.length > 0) {
+          let closestIdx = 0;
+          let closestDist = Infinity;
+          for (let i = 0; i < unvisited.length; i++) {
+            const d = distEst(curr, state.waypoints[unvisited[i]]);
+            if (d < closestDist) {
+              closestDist = d;
+              closestIdx = i;
+            }
+          }
+          const chosen = unvisited.splice(closestIdx, 1)[0];
+          bestOrder.push(chosen);
+          curr = state.waypoints[chosen];
+        }
+      }
+
+      if (bestOrder) {
+        state.waypoints = bestOrder.map(i => state.waypoints[i]);
+        refreshMarkers();
+        alert("✨ Порядок заказов оптимизирован! Маршрут перестроен для минимального расхода энергии.");
+      }
     };
   </script>
 </body>
