@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -7,6 +7,11 @@
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: ['selector', '[data-theme="dark"]'],
+    }
+  </script>
   
   <!-- Font Awesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -15,268 +20,380 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <style>
-    html, body, #map {
-      height: 100%;
-      width: 100%;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-    .leaflet-control-zoom {
-      border: none !important;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-    }
-    .glass-card {
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.14);
-    }
-    .no-scrollbar::-webkit-scrollbar {
-      display: none;
-    }
-    .no-scrollbar {
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-    }
-  </style>
+  <!-- Modern Custom Styles & Themes -->
+  <link rel="stylesheet" href="styles.css" />
 </head>
-<body class="relative bg-slate-100 select-none">
+<body class="relative bg-slate-100 dark:bg-slate-950 select-none overflow-hidden text-slate-900 dark:text-slate-100">
 
   <!-- Карта Leaflet на весь экран -->
   <div id="map" class="z-0"></div>
 
-  <!-- Верхняя панель управления -->
-  <div class="absolute top-3 left-3 right-3 z-10 flex flex-col gap-2 max-w-md mx-auto pointer-events-none">
+  <!-- Плавающий верхний остров (Map-First Top Bar) -->
+  <div class="fixed top-3 left-3 right-3 z-20 max-w-md mx-auto flex flex-col gap-1.5 pointer-events-none">
     
-    <!-- Шапка приложения -->
-    <div class="glass-card rounded-2xl p-3 border border-white/70 pointer-events-auto flex items-center justify-between">
-      <div class="flex items-center gap-2.5">
-        <div class="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30">
-          <i class="fa-solid fa-bicycle text-lg"></i>
-        </div>
-        <div>
-          <div class="flex items-center gap-1.5">
-            <h1 class="text-sm font-bold text-slate-800 leading-tight">E-Bike AI Optimizer</h1>
-            <span class="text-[10px] font-bold bg-slate-900 text-white px-1.5 py-0.5 rounded-md">v1.2</span>
-          </div>
-          <p class="text-xs text-slate-500" id="topStatusText">Кликните по карте для расстановки точек</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-1.5">
-        <!-- Виджет живой погоды -->
-        <div id="liveWeatherBadge" title="Реальная погода в месте старта (Open-Meteo)" class="hidden bg-slate-100/90 text-slate-700 px-2 py-1 rounded-xl text-[11px] font-semibold flex items-center gap-1 border border-slate-200 shadow-xs cursor-pointer">
-          <span id="weatherIcon">⛅</span>
-          <span id="weatherTemp">+15°C</span>
-        </div>
-        <button id="btnGeo" title="Мое местоположение" class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition active:scale-95">
-          <i class="fa-solid fa-location-crosshairs text-sm"></i>
-        </button>
-        <button id="btnSettings" title="Гараж и условия" class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition active:scale-95 relative">
-          <i class="fa-solid fa-sliders text-sm"></i>
-          <span id="customBikeBadge" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full border-2 border-white"></span>
-        </button>
-      </div>
-    </div>
+    <!-- 1. Основная компактная строка поиска и статуса (высота 48px) -->
+    <div class="glass-panel rounded-2xl p-1.5 pointer-events-auto flex items-center gap-1.5 relative shadow-sm">
+      <!-- Кнопка города -->
+      <button id="btnCityBadge" title="Сменить город поиска" class="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 flex-shrink-0 border border-slate-200 dark:border-slate-700 max-w-[110px]">
+        <i class="fa-solid fa-city text-blue-600 dark:text-blue-400 text-[11px] flex-shrink-0"></i>
+        <span id="cityBadgeText" class="truncate">Караганда</span>
+      </button>
 
-    <!-- Строка быстрого поиска адреса и умная вставка из буфера -->
-    <div class="glass-card rounded-2xl p-1.5 border border-white/70 pointer-events-auto relative">
-      <div class="flex items-center gap-1.5">
-        <div class="relative flex-1">
-          <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
-          <input type="text" id="searchInput" placeholder="Поиск улицы или дома..." class="w-full bg-slate-50 border border-slate-200/90 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium">
-          <button id="btnClearSearch" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-xs">
-            <i class="fa-solid fa-circle-xmark"></i>
-          </button>
-        </div>
-        <button id="btnSmartPaste" title="Вставить адрес или ссылку из буфера (2ГИС, Яндекс, текст)" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 shadow-sm transition active:scale-95 flex-shrink-0">
-          <i class="fa-regular fa-clipboard"></i> <span>Вставить</span>
-        </button>
-        <button id="btnOpenBatch" title="Пакетный импорт смены (несколько адресов)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 w-8 h-8 rounded-xl flex items-center justify-center transition active:scale-95 flex-shrink-0">
-          <i class="fa-solid fa-boxes-stacked text-xs"></i>
+      <!-- Поле ввода адреса -->
+      <div class="relative flex-1">
+        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+        <input type="text" id="searchInput" placeholder="Поиск улицы или вставка..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-6 py-1.5 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1.5 focus:ring-blue-500 font-medium">
+        <button id="btnClearSearch" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">
+          <i class="fa-solid fa-circle-xmark"></i>
         </button>
       </div>
+
+      <!-- Быстрая вставка из буфера -->
+      <button id="btnSmartPaste" title="Вставить из буфера" class="w-8 h-8 rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-sm transition active:scale-95 flex-shrink-0">
+        <i class="fa-regular fa-clipboard text-xs"></i>
+      </button>
+
+      <!-- Статус API сервера -->
+      <button id="serverStatusBadge" title="Статус FastAPI бэкенда" class="h-8 px-2.5 rounded-xl text-[10px] font-bold bg-amber-50 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1.5 cursor-pointer flex-shrink-0 transition active:scale-95">
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+        <span class="hidden sm:inline font-bold">API</span>
+      </button>
+
+      <!-- Переключатель темной / светлой темы -->
+      <button id="btnToggleTheme" title="Сменить тему оформления" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center transition active:scale-95 flex-shrink-0">
+        <i class="fa-solid fa-moon text-xs"></i>
+      </button>
+
+      <!-- Настройки / Гараж -->
+      <button id="btnSettings" title="Гараж и условия смены" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center transition active:scale-95 flex-shrink-0 relative">
+        <i class="fa-solid fa-sliders text-xs"></i>
+        <span id="customBikeBadge" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full border-2 border-white dark:border-slate-900"></span>
+      </button>
+
       <!-- Выпадающий список подсказок поиска -->
-      <div id="searchSuggestions" class="hidden absolute left-1.5 right-1.5 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-30 max-h-48 overflow-y-auto text-xs divide-y divide-slate-100"></div>
+      <div id="searchSuggestions" class="hidden absolute left-1 right-1 top-full mt-1.5 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 py-1.5 z-30 max-h-56 overflow-y-auto text-xs divide-y divide-slate-100 dark:divide-slate-800"></div>
     </div>
 
-    <!-- Панель мульти-точек, закладок и режима "Туда и обратно" -->
-    <div class="glass-card rounded-2xl p-2.5 border border-white/70 pointer-events-auto space-y-2">
-      <!-- Селектор режима добавления точек -->
-      <div class="flex gap-1 text-[11px] font-medium">
-        <button id="modeStart" class="flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 bg-emerald-500 text-white shadow-sm transition">
-          <span class="w-2 h-2 rounded-full bg-white"></span> Старт 🟢
+    <!-- 2. Компактная полоса переключения режимов точек и быстрых опций -->
+    <div class="glass-panel rounded-2xl p-1.5 pointer-events-auto flex items-center justify-between gap-1 shadow-sm">
+      <!-- Переключатель режима клика по карте -->
+      <div class="flex gap-1 text-[11px] font-medium flex-1">
+        <button id="modeStart" class="flex-1 py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 bg-emerald-600 text-white shadow-xs transition font-semibold text-xs">
+          <span class="w-2 h-2 rounded-full bg-white"></span>
+          <span>Старт</span>
         </button>
-        <button id="modeAddStop" class="flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 text-slate-600 hover:bg-slate-100 transition">
-          <i class="fa-solid fa-plus text-[10px]"></i> Заказ 🔵
+        <button id="modeAddStop" class="flex-1 py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition font-medium text-xs">
+          <i class="fa-solid fa-plus text-[10px]"></i>
+          <span>Заказ</span>
         </button>
-        <button id="modeEnd" class="flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 text-slate-600 hover:bg-slate-100 transition">
-          <span class="w-2 h-2 rounded-full bg-rose-500"></span> Финиш 🔴
+        <button id="modeEnd" class="flex-1 py-1.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition font-medium text-xs">
+          <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+          <span>Финиш</span>
         </button>
       </div>
 
-      <!-- Лента активных промежуточных точек с кнопками удаления (✕) -->
-      <div id="activeWaypointsStrip" class="hidden pt-1 border-t border-slate-100">
-        <div class="flex items-center justify-between mb-1 px-1">
-          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider" id="waypointsCount">Точки доставок:</span>
-          <button id="btnOptimizeOrder" title="Переставить адреса так, чтобы везти тяжелый груз под гору и тратить меньше батареи" class="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 py-0.5 px-1.5 rounded-md hover:bg-blue-50 transition active:scale-95">
-            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i> <span>Оптимизировать порядок</span>
-          </button>
-        </div>
-        <div id="waypointsChips" class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5 px-0.5"></div>
-      </div>
-
-      <!-- Лента избранных закладок (Избранные локации) -->
-      <div class="pt-1 border-t border-slate-100">
-        <div class="flex items-center justify-between mb-1 px-1">
-          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-            <i class="fa-solid fa-bookmark text-amber-500"></i> Закладки
-          </span>
-          <button id="btnAddBookmark" class="text-[10px] text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-0.5">
-            <i class="fa-solid fa-plus text-[9px]"></i> Сохранить текущую
-          </button>
-        </div>
-        <div id="bookmarksList" class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5 px-0.5">
-          <!-- Карточки закладок генерируются динамически через JS -->
-        </div>
-      </div>
-
-      <!-- Переключатель "Туда и обратно" (Round Trip), отмена и очистка -->
-      <div class="flex items-center justify-between pt-1.5 border-t border-slate-100 px-1 text-xs">
-        <label class="flex items-center gap-2 cursor-pointer select-none">
-          <input type="checkbox" id="toggleRoundTrip" class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-500">
-          <span class="font-semibold text-slate-700 flex items-center gap-1">
-            <i class="fa-solid fa-rotate-left text-[11px] text-emerald-600"></i> Туда и обратно (на Старт)
-          </span>
-        </label>
-        
-        <div class="flex items-center gap-1.5">
-          <button id="btnUndoStop" title="Удалить последнюю добавленную точку" class="text-[11px] text-slate-500 hover:text-slate-800 font-medium flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-slate-100 transition">
-            <i class="fa-solid fa-arrow-rotate-left text-[10px]"></i> Назад
-          </button>
-          <button id="btnClearStops" class="text-[11px] text-rose-500 hover:text-rose-700 font-medium flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-rose-50 transition">
-            <i class="fa-regular fa-trash-can text-[10px]"></i> Сброс
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Кнопка расчета маршрута (плавающая снизу) -->
-  <div class="absolute bottom-6 left-4 right-4 z-10 max-w-md mx-auto pointer-events-none" id="bottomActionArea">
-    <button id="btnCalculate" class="w-full pointer-events-auto bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3.5 px-5 rounded-2xl shadow-xl shadow-slate-900/25 flex items-center justify-center gap-2 transition active:scale-[0.98]">
-      <i class="fa-solid fa-bolt text-amber-400"></i>
-      <span id="btnCalculateText">Рассчитать маршрут и физику</span>
-    </button>
-  </div>
-
-  <!-- Нижняя панель с результатами расчета (выдвижная шторка) -->
-  <div id="resultsCard" class="hidden absolute bottom-0 left-0 right-0 z-20 glass-card rounded-t-3xl border-t border-white/60 p-4 max-w-lg mx-auto transition-transform duration-300 pointer-events-auto max-h-[88vh] overflow-y-auto">
-    <!-- Ручка шторки -->
-    <div class="w-12 h-1.5 bg-slate-300 rounded-full mx-auto mb-3 cursor-pointer" id="closeResults"></div>
-
-    <div class="flex items-center justify-between mb-3">
-      <div>
-        <div class="flex items-center gap-2">
-          <h2 class="text-base font-bold text-slate-800">Результаты расчета</h2>
-          <span id="badgeRoundTrip" class="hidden text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
-            🔄 Возврат на Старт
-          </span>
-        </div>
-        <p class="text-xs text-slate-500" id="routeSubhead">Оценка расхода батареи с учетом рельефа и веса</p>
-      </div>
-      <button id="btnCloseResults" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200">
-        <i class="fa-solid fa-xmark text-sm"></i>
+      <!-- Кнопка разворачивания быстрых настроек/условий дороги -->
+      <button id="btnToggleQuickOptions" title="Настройки покрытия, погоды и закладок" class="px-2.5 py-1.5 rounded-xl text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold flex items-center gap-1.5 transition flex-shrink-0 border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+        <i class="fa-solid fa-cloud-sun text-slate-500 dark:text-slate-400"></i>
+        <i class="fa-solid fa-chevron-down text-[9px] transition-transform" id="quickOptionsArrow"></i>
       </button>
     </div>
 
-    <!-- Селектор альтернативных маршрутов (если доступны) -->
-    <div id="routeTabsContainer" class="flex gap-2 mb-3"></div>
-
-    <!-- Статус безопасности батареи -->
-    <div id="safetyBanner" class="p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5"></div>
-
-    <!-- Сетка ключевых показателей -->
-    <div class="grid grid-cols-3 gap-2 mb-3">
-      <div class="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-center">
-        <div class="text-[11px] text-slate-400 uppercase font-medium">Дистанция</div>
-        <div class="text-base font-bold text-slate-800" id="resDistance">0.0 км</div>
+    <!-- 3. Лента чипсов активных точек (если добавлены заказы) -->
+    <div id="activeWaypointsStrip" class="hidden glass-panel rounded-2xl p-2 pointer-events-auto shadow-sm">
+      <div class="flex items-center justify-between mb-1.5 px-0.5">
+        <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider" id="waypointsCount">Точки доставок:</span>
+        <button id="btnOptimizeOrder" title="Переставить адреса так, чтобы везти тяжелый груз под гору и тратить меньше батареи" class="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-bold flex items-center gap-1 py-0.5 px-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950 transition active:scale-95">
+          <i class="fa-solid fa-wand-magic-sparkles text-[10px]"></i> <span>Оптимизировать порядок</span>
+        </button>
       </div>
-      <div class="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-center">
-        <div class="text-[11px] text-slate-400 uppercase font-medium">Время</div>
-        <div class="text-base font-bold text-slate-800" id="resDuration">0 мин</div>
-      </div>
-      <div class="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-center">
-        <div class="text-[11px] text-slate-400 uppercase font-medium">Подъем</div>
-        <div class="text-base font-bold text-slate-800" id="resAscent">0 м</div>
-      </div>
+      <div id="waypointsChips" class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5 px-0.5"></div>
     </div>
 
-    <div class="grid grid-cols-2 gap-2 mb-3">
-      <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-2.5">
-        <div class="text-[11px] text-emerald-700 font-medium">Расход батареи</div>
-        <div class="text-lg font-black text-emerald-900" id="resEnergy">0 Вт·ч</div>
-        <div class="text-xs text-emerald-600 font-semibold" id="resDropPercent">0% АКБ</div>
-      </div>
-      <div class="bg-blue-50 border border-blue-100 rounded-xl p-2.5">
-        <div class="text-[11px] text-blue-700 font-medium">Остаток заряда</div>
-        <div class="text-lg font-black text-blue-900" id="resFinalCharge">100%</div>
-        <div class="text-xs text-blue-600" id="resEffectiveCap">Эфф. емкость: 720 Вт·ч</div>
-      </div>
-    </div>
-
-    <!-- Интерактивный график профиля высот (Elevation Profile) -->
-    <div class="bg-slate-50 border border-slate-200/80 rounded-xl p-3 mb-3">
-      <div class="flex items-center justify-between mb-2">
-        <div class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-          <i class="fa-solid fa-mountain text-slate-500"></i> Профиль рельефа и высоты
+    <!-- 4. Сворачиваемая панель опций (покрытие, туда/обратно, закладки, импорт) -->
+    <div id="quickOptionsPanel" class="hidden glass-panel rounded-2xl p-3 pointer-events-auto space-y-2.5 shadow-xl">
+      <!-- Статус погоды Open-Meteo -->
+      <div class="flex items-center justify-between pb-2 border-b border-slate-200/80 dark:border-slate-800">
+        <div class="flex items-center gap-1.5 text-xs text-slate-800 dark:text-slate-200">
+          <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Погода:</span>
+          <div id="liveWeatherBadge" class="hidden bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg text-[11px] font-semibold flex items-center gap-1 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+            <span id="weatherIcon">⛅</span>
+            <span id="weatherTemp">+15°C</span>
+          </div>
+          <span id="autoWeatherHint" class="text-[10px] text-blue-600 dark:text-blue-400 font-semibold hidden"></span>
         </div>
-        <span class="text-[10px] text-slate-400" id="elevStatsText">мин 0м / макс 0м</span>
+        <button id="btnOpenBatch" title="Пакетный импорт смены" class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold flex items-center gap-1">
+          <i class="fa-solid fa-boxes-stacked text-[11px]"></i> <span>Импорт смены</span>
+        </button>
       </div>
-      <div id="elevationChartWrapper" class="w-full h-24 overflow-hidden relative">
-        <svg id="elevationSvg" class="w-full h-full" preserveAspectRatio="none"></svg>
+
+      <!-- Селектор покрытия (Сухо/Дождь/Снег) -->
+      <div>
+        <div class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 flex items-center gap-1">
+          <i class="fa-solid fa-road text-slate-500"></i> Состояние дороги (C_rr):
+        </div>
+        <div class="grid grid-cols-3 gap-1.5 text-xs font-semibold">
+          <button id="btnCondDry" type="button" class="py-1.5 px-2 rounded-xl border text-center transition flex items-center justify-center gap-1 bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-700 dark:text-blue-300 shadow-xs font-semibold">
+            <span>☀️</span><span>Сухо</span>
+          </button>
+          <button id="btnCondWet" type="button" class="py-1.5 px-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-center transition flex items-center justify-center gap-1 font-medium">
+            <span>🌧️</span><span>Дождь</span>
+          </button>
+          <button id="btnCondSlush" type="button" class="py-1.5 px-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-center transition flex items-center justify-center gap-1 font-medium">
+            <span>❄️</span><span>Каша / снег</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Туда и обратно -->
+      <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-xs">
+        <label class="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" id="toggleRoundTrip" class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-500">
+          <span class="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+            <i class="fa-solid fa-rotate-left text-[11px] text-emerald-600"></i> Туда и обратно (на Старт)
+          </span>
+        </label>
+      </div>
+
+      <!-- Закладки -->
+      <div class="pt-1 border-t border-slate-100 dark:border-slate-800">
+        <div class="flex items-center justify-between mb-1 px-0.5">
+          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+            <i class="fa-solid fa-bookmark text-amber-500"></i> Закладки
+          </span>
+          <button id="btnAddBookmark" class="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-800 font-semibold flex items-center gap-0.5">
+            <i class="fa-solid fa-plus text-[9px]"></i> Сохранить
+          </button>
+        </div>
+        <div id="bookmarksList" class="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5"></div>
       </div>
     </div>
 
-    <!-- Раскрывающийся блок детализации сегментов и физики -->
-    <details class="text-xs text-slate-600 bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 cursor-pointer" open>
-      <summary class="font-semibold text-slate-700 select-none flex items-center justify-between">
-        <span>📍 Отрезки пути и направление движения</span>
-        <span class="text-[10px] text-slate-400 font-normal">клик для скрытия</span>
-      </summary>
-      <div class="mt-2.5 space-y-2 pt-2 border-t border-slate-200 text-[11px]" id="segmentsListContainer"></div>
-      <div class="mt-2 pt-2 border-t border-slate-200 space-y-1 text-[11px]" id="energyBreakdownList"></div>
-    </details>
+    <!-- Статус подсказка под строкой поиска -->
+    <div id="topStatusContainer" class="text-center">
+      <span id="topStatusText" class="text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-2.5 py-0.5 rounded-full shadow-xs border border-white/60 dark:border-slate-800">Кликните по карте для расстановки точек</span>
+    </div>
+  </div>
 
-    <!-- Экспорт маршрута в GPX для внешних навигаторов (2ГИС, Яндекс, OsmAnd) -->
-    <button id="btnExportGpx" class="w-full mt-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2.5 px-3 rounded-xl border border-slate-200/90 text-xs flex items-center justify-center gap-2 transition active:scale-[0.98]">
-      <i class="fa-solid fa-file-arrow-down text-blue-600"></i>
-      <span>📲 Скачать GPX (Открыть в 2ГИС / Яндекс / OsmAnd)</span>
+  <!-- Плавающий стек кнопок управления (FAB Stack справа) -->
+  <div class="fixed right-3 bottom-24 z-20 flex flex-col gap-2 pointer-events-none">
+    <button id="btnFloatReopenRoute" title="Показать результаты маршрута" class="hidden w-11 h-11 rounded-2xl glass-panel text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-lg transition active:scale-95 pointer-events-auto hover:bg-blue-50 dark:hover:bg-blue-950/60 animate-bounce">
+      <i class="fa-solid fa-chart-line text-base"></i>
+    </button>
+    <button id="btnGeo" title="Мое местоположение" class="w-11 h-11 rounded-2xl glass-panel text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-lg transition active:scale-95 pointer-events-auto hover:bg-slate-50 dark:hover:bg-slate-800">
+      <i class="fa-solid fa-location-crosshairs text-base text-blue-600 dark:text-blue-400"></i>
+    </button>
+    <button id="btnUndoStop" title="Удалить последнюю точку" class="w-11 h-11 rounded-2xl glass-panel text-slate-700 dark:text-slate-200 flex items-center justify-center shadow-lg transition active:scale-95 pointer-events-auto hover:bg-slate-50 dark:hover:bg-slate-800">
+      <i class="fa-solid fa-arrow-rotate-left text-sm text-slate-600 dark:text-slate-400"></i>
+    </button>
+    <button id="btnClearStops" title="Очистить все точки" class="w-11 h-11 rounded-2xl glass-panel text-rose-500 flex items-center justify-center shadow-lg transition active:scale-95 pointer-events-auto hover:bg-rose-50 dark:hover:bg-rose-950/60">
+      <i class="fa-regular fa-trash-can text-sm"></i>
     </button>
   </div>
 
+  <!-- Кнопка расчета маршрута и плавающий бар восстановления при скрытой шторке -->
+  <div class="fixed bottom-5 left-4 right-4 z-20 max-w-md mx-auto pointer-events-none" id="bottomActionArea">
+    <!-- Когда маршрут еще не рассчитан -->
+    <button id="btnCalculate" class="w-full pointer-events-auto bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-semibold py-3.5 px-5 rounded-2xl shadow-xl shadow-slate-900/30 flex items-center justify-center gap-2 transition active:scale-[0.98]">
+      <i class="fa-solid fa-bolt text-amber-400"></i>
+      <span id="btnCalculateText">Рассчитать маршрут и физику</span>
+    </button>
+
+    <!-- Когда маршрут рассчитан, но шторка скрыта (плавающий бар быстрого возврата) -->
+    <div id="routeReopenContainer" class="hidden pointer-events-auto flex items-center gap-2 w-full">
+      <button id="btnReopenResults" title="Открыть результаты маршрута" class="flex-1 glass-panel py-3 px-4 rounded-2xl shadow-xl flex items-center justify-between transition active:scale-[0.98] border border-slate-200/80 dark:border-slate-700/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md hover:bg-slate-50 dark:hover:bg-slate-800">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="w-8 h-8 rounded-xl bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center text-sm flex-shrink-0">
+            <i class="fa-solid fa-route"></i>
+          </span>
+          <div class="text-left min-w-0">
+            <div class="text-xs font-bold truncate text-slate-900 dark:text-slate-100" id="reopenDistText">Маршрут готов</div>
+            <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold truncate" id="reopenBatText">Остаток: --%</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1.5 rounded-xl flex-shrink-0 border border-blue-200/50 dark:border-blue-800/50">
+          <span>Маршрут</span>
+          <i class="fa-solid fa-chevron-up text-[10px]"></i>
+        </div>
+      </button>
+
+      <!-- Кнопка перерасчета (если параметры изменены в скрытом состоянии) -->
+      <button id="btnRecalcStaleFloating" title="Параметры изменены. Нажмите для перерасчета" class="hidden h-12 w-12 rounded-2xl bg-amber-500 hover:bg-amber-400 text-white shadow-xl shadow-amber-900/20 flex items-center justify-center text-base transition active:scale-95 flex-shrink-0 animate-pulse border border-amber-400">
+        <i class="fa-solid fa-rotate"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Настоящий жестовый Bottom Sheet с результатами расчета -->
+  <div id="resultsCard" class="hidden fixed bottom-0 left-0 right-0 z-30 glass-sheet rounded-t-3xl max-w-lg mx-auto pointer-events-auto flex flex-col will-change-transform select-none" style="height: 86vh; transform: translateY(100%);">
+    
+    <!-- 1. Зона перетягивания (Drag Handle) -->
+    <div class="w-full pt-3 pb-2 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing touch-none" id="closeResults">
+      <div class="w-14 h-1.5 bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 rounded-full transition-colors"></div>
+    </div>
+
+    <!-- 2. Мини-дашборд (всегда виден в peek, half, full) -->
+    <div id="sheetMiniDashboard" class="px-4 py-2 flex items-center justify-between border-b border-slate-200 dark:border-slate-800 cursor-pointer touch-none bg-slate-50/70 dark:bg-slate-900/40">
+      <div class="flex items-center gap-3">
+        <div>
+          <div class="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">Дистанция</div>
+          <div class="text-sm font-black text-slate-900 dark:text-slate-100" id="miniDistance">0.0 км</div>
+        </div>
+        <div class="w-[1px] h-6 bg-slate-200 dark:bg-slate-700"></div>
+        <div>
+          <div class="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">Время</div>
+          <div class="text-sm font-black text-slate-900 dark:text-slate-100" id="miniDuration">0 мин</div>
+        </div>
+        <div class="w-[1px] h-6 bg-slate-200 dark:bg-slate-700"></div>
+        <div>
+          <div class="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">Расход</div>
+          <div class="text-sm font-black text-emerald-600 dark:text-emerald-400" id="miniEnergy">0 Вт·ч</div>
+        </div>
+      </div>
+      
+      <div class="flex items-center gap-2">
+        <div class="text-right mr-1">
+          <div class="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">Остаток АКБ</div>
+          <div class="text-sm font-black text-emerald-600 dark:text-emerald-400" id="miniBattery">100%</div>
+        </div>
+        <button id="btnSheetRecalcMini" title="Параметры изменены. Нажмите для перерасчета" class="hidden h-8 px-2.5 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-200 text-[10px] font-bold flex items-center gap-1 border border-amber-300 dark:border-amber-700 animate-pulse transition active:scale-95">
+          <i class="fa-solid fa-rotate text-xs"></i>
+          <span>Обновить</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 3. Основной скроллируемый контент -->
+    <div id="sheetScrollBody" class="p-4 flex-1 overflow-y-auto custom-scroll space-y-3 pb-8">
+      <div class="flex items-center justify-between pb-1">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-base font-bold text-slate-900 dark:text-slate-100">Результаты расчета</h2>
+            <span id="badgeRoundTrip" class="hidden text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800">
+              🔄 Возврат на Старт
+            </span>
+            <button id="btnRecalcFromSheet" title="Параметры изменены. Нажмите для перерасчета" class="hidden text-[10px] font-bold bg-amber-100 dark:bg-amber-950 hover:bg-amber-200 text-amber-900 dark:text-amber-200 px-2.5 py-0.5 rounded-lg border border-amber-300 dark:border-amber-700 flex items-center gap-1 transition active:scale-95">
+              <i class="fa-solid fa-rotate text-[9px]"></i>
+              <span>Пересчитать</span>
+            </button>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400" id="routeSubhead">Оценка расхода батареи с учетом рельефа и веса</p>
+        </div>
+        <button id="btnScrollBodyClose" title="Скрыть шторку" class="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center transition active:scale-95">
+          <i class="fa-solid fa-chevron-down text-xs"></i>
+        </button>
+      </div>
+
+      <!-- Селектор альтернативных маршрутов -->
+      <div id="routeTabsContainer" class="flex gap-2"></div>
+
+      <!-- Статус безопасности батареи -->
+      <div id="safetyBanner" class="p-3.5 rounded-2xl text-xs flex items-center gap-2.5 font-medium shadow-xs"></div>
+
+      <!-- Сетка ключевых показателей -->
+      <div class="grid grid-cols-3 gap-2">
+        <div class="bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-2.5 text-center shadow-xs">
+          <div class="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Дистанция</div>
+          <div class="text-sm font-black text-slate-900 dark:text-slate-100" id="resDistance">0.0 км</div>
+        </div>
+        <div class="bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-2.5 text-center shadow-xs">
+          <div class="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Время</div>
+          <div class="text-sm font-black text-slate-900 dark:text-slate-100" id="resDuration">0 мин</div>
+        </div>
+        <div class="bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-2.5 text-center shadow-xs">
+          <div class="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Подъем</div>
+          <div class="text-sm font-black text-slate-900 dark:text-slate-100" id="resAscent">0 м</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div class="bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-2xl p-3 shadow-xs">
+          <div class="text-[11px] text-emerald-800 dark:text-emerald-300 font-bold">Расход батареи</div>
+          <div class="text-base font-black text-emerald-900 dark:text-emerald-200" id="resEnergy">0 Вт·ч</div>
+          <div class="text-xs text-emerald-700 dark:text-emerald-400 font-bold" id="resDropPercent">0% АКБ</div>
+        </div>
+        <div class="bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-2xl p-3 shadow-xs">
+          <div class="text-[11px] text-blue-800 dark:text-blue-300 font-bold">Остаток заряда</div>
+          <div class="text-base font-black text-blue-900 dark:text-blue-200" id="resFinalCharge">100%</div>
+          <div class="text-xs text-blue-700 dark:text-blue-400 font-semibold" id="resEffectiveCap">Эфф. емкость: 720 Вт·ч</div>
+        </div>
+      </div>
+
+      <!-- Информационная плашка: Покрытие дороги и C_rr -->
+      <div id="surfaceInfoCard" class="bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs shadow-xs">
+        <div class="flex items-center justify-between mb-1">
+          <span class="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+            <i class="fa-solid fa-road text-slate-500"></i> Покрытие дороги и сцепление:
+          </span>
+          <span id="surfaceCrrBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600">
+            C_rr = 0.007
+          </span>
+        </div>
+        <div id="surfaceBreakdownText" class="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+          Анализ покрытия дороги...
+        </div>
+        <div id="surfaceImpactAlert" class="hidden mt-1.5 p-2 rounded-xl text-[11px] font-medium flex items-center gap-1.5"></div>
+      </div>
+
+      <!-- Интерактивный график профиля высот с синхронизацией по карте -->
+      <div class="bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-xs">
+        <div class="flex items-center justify-between mb-1.5">
+          <div class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+            <i class="fa-solid fa-mountain text-slate-500"></i> Профиль высоты (наведите курсор)
+          </div>
+          <span class="text-[10px] text-slate-500 dark:text-slate-400 font-semibold" id="elevStatsText">мин 0м / макс 0м</span>
+        </div>
+        <div id="elevationChartWrapper" class="w-full h-24 overflow-hidden relative cursor-crosshair rounded-xl">
+          <svg id="elevationSvg" class="w-full h-full" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+
+      <!-- Раскрывающийся блок детализации сегментов и физики -->
+      <details class="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 cursor-pointer" open>
+        <summary class="font-semibold text-slate-700 dark:text-slate-200 select-none flex items-center justify-between">
+          <span>📍 Отрезки пути и физика затрат</span>
+          <span class="text-[10px] text-slate-400 font-normal">клик для скрытия</span>
+        </summary>
+        <div class="mt-2.5 space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700 text-[11px]" id="segmentsListContainer"></div>
+        <div class="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1 text-[11px]" id="energyBreakdownList"></div>
+      </details>
+
+      <!-- Экспорт GPX -->
+      <button id="btnExportGpx" class="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold py-3 px-3 rounded-2xl border border-slate-200/90 dark:border-slate-700 text-xs flex items-center justify-center gap-2 transition active:scale-[0.98]">
+        <i class="fa-solid fa-file-arrow-down text-blue-600 dark:text-blue-400"></i>
+        <span>📲 Экспорт GPX (2ГИС / Яндекс / OsmAnd)</span>
+      </button>
+    </div>
+  </div>
+
   <!-- Модальное окно настроек: Кастомный гараж курьера и условия -->
-  <div id="settingsModal" class="hidden fixed inset-0 z-30 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md p-5 max-h-[92vh] overflow-y-auto">
+  <div id="settingsModal" class="hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 max-h-[92vh] overflow-y-auto custom-scroll border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
             <i class="fa-solid fa-wrench"></i>
           </div>
-          <h3 class="font-bold text-base text-slate-800">Гараж и условия смены</h3>
+          <h3 class="font-bold text-base text-slate-800 dark:text-slate-100">Гараж и условия смены</h3>
         </div>
-        <button id="btnCloseSettings" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+        <button id="btnCloseSettings" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
 
-      <div class="space-y-4 text-xs text-slate-700">
-        <!-- Выбор типа байка / Гараж -->
+      <div class="space-y-4 text-xs text-slate-700 dark:text-slate-300">
+        <!-- Рабочий город курьера -->
         <div>
-          <label class="font-semibold block mb-1">Выбор электровелосипеда:</label>
-          <select id="cfgBike" class="w-full border border-slate-300 rounded-xl p-2.5 bg-slate-50 font-medium">
+          <label class="font-semibold flex items-center gap-1.5 text-slate-800 dark:text-slate-200 mb-1">
+            <i class="fa-solid fa-city text-blue-600 dark:text-blue-400"></i> Рабочий город курьера:
+          </label>
+          <input type="text" id="cfgCity" placeholder="Караганда, Алматы, Астана..." class="w-full border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 bg-slate-50 dark:bg-slate-800 font-medium text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none dark:text-white">
+        </div>
+
+        <!-- Выбор типа байка -->
+        <div>
+          <label class="font-semibold block mb-1">Тип электровелосипеда:</label>
+          <select id="cfgBike" class="w-full border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 bg-slate-50 dark:bg-slate-800 font-medium dark:text-white">
             <option value="courier_standard">Курьерский стандарт (48V 15Ah — 720 Вт·ч, 32 кг)</option>
             <option value="courier_heavy">Курьерский дальнобойный (60V 20Ah — 1200 Вт·ч, 38 кг)</option>
             <option value="city_compact">Городской легкий (36V 10.4Ah — 375 Вт·ч, 20 кг)</option>
@@ -285,14 +402,14 @@
         </div>
 
         <!-- Конструктор кастомного байка -->
-        <div id="customBikeBox" class="hidden p-3 bg-amber-50/80 border border-amber-200 rounded-xl space-y-2.5">
-          <div class="font-bold text-amber-900 flex items-center gap-1.5">
+        <div id="customBikeBox" class="hidden p-3 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-2xl space-y-2.5">
+          <div class="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
             <i class="fa-solid fa-screwdriver-wrench"></i> Параметры вашей сборки:
           </div>
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="font-medium text-[11px] text-amber-900 block mb-0.5">Вольтаж (V):</label>
-              <select id="customVolts" class="w-full border border-amber-300 rounded-lg p-1.5 bg-white font-bold">
+              <label class="font-medium text-[11px] text-amber-900 dark:text-amber-300 block mb-0.5">Вольтаж (V):</label>
+              <select id="customVolts" class="w-full border border-amber-300 dark:border-amber-700 rounded-xl p-1.5 bg-white dark:bg-slate-800 font-bold dark:text-white">
                 <option value="36">36 Вольт</option>
                 <option value="48" selected>48 Вольт</option>
                 <option value="52">52 Вольта</option>
@@ -301,21 +418,21 @@
               </select>
             </div>
             <div>
-              <label class="font-medium text-[11px] text-amber-900 block mb-0.5">Емкость (А·ч / Ah):</label>
-              <input type="number" id="customAh" value="21" min="3" max="80" step="0.5" class="w-full border border-amber-300 rounded-lg p-1.5 font-bold text-center">
+              <label class="font-medium text-[11px] text-amber-900 dark:text-amber-300 block mb-0.5">Емкость (А·ч):</label>
+              <input type="number" id="customAh" value="21" min="3" max="80" step="0.5" class="w-full border border-amber-300 dark:border-amber-700 rounded-xl p-1.5 font-bold text-center bg-white dark:bg-slate-800 dark:text-white">
             </div>
           </div>
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="font-medium text-[11px] text-amber-900 block mb-0.5">Вес байка (кг):</label>
-              <input type="number" id="customWeight" value="35" min="12" max="60" class="w-full border border-amber-300 rounded-lg p-1.5 font-bold text-center">
+              <label class="font-medium text-[11px] text-amber-900 dark:text-amber-300 block mb-0.5">Вес байка (кг):</label>
+              <input type="number" id="customWeight" value="35" min="12" max="60" class="w-full border border-amber-300 dark:border-amber-700 rounded-xl p-1.5 font-bold text-center bg-white dark:bg-slate-800 dark:text-white">
             </div>
             <div>
-              <label class="font-medium text-[11px] text-amber-900 block mb-0.5">Мощность (Вт):</label>
-              <input type="number" id="customPower" value="500" min="200" max="3000" step="50" class="w-full border border-amber-300 rounded-lg p-1.5 font-bold text-center">
+              <label class="font-medium text-[11px] text-amber-900 dark:text-amber-300 block mb-0.5">Мощность (Вт):</label>
+              <input type="number" id="customPower" value="500" min="200" max="3000" step="50" class="w-full border border-amber-300 dark:border-amber-700 rounded-xl p-1.5 font-bold text-center bg-white dark:bg-slate-800 dark:text-white">
             </div>
           </div>
-          <div class="text-[11px] font-bold text-amber-800 bg-amber-100/70 p-2 rounded-lg flex items-center justify-between">
+          <div class="text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-900/60 p-2 rounded-xl flex items-center justify-between">
             <span>⚡ Расчетная емкость:</span>
             <span id="customWhCalc">48V × 21Ah = 1008 Вт·ч</span>
           </div>
@@ -325,7 +442,7 @@
         <div>
           <div class="flex justify-between font-semibold mb-1">
             <span>Текущий заряд батареи:</span>
-            <span id="cfgChargeVal" class="text-emerald-600 font-bold">85%</span>
+            <span id="cfgChargeVal" class="text-emerald-600 dark:text-emerald-400 font-bold">85%</span>
           </div>
           <input type="range" id="cfgCharge" min="10" max="100" value="85" step="5" class="w-full accent-emerald-500">
         </div>
@@ -333,7 +450,7 @@
         <div>
           <div class="flex justify-between font-semibold mb-1">
             <span>Температура воздуха:</span>
-            <span id="cfgTempVal" class="text-blue-600 font-bold">+15°C</span>
+            <span id="cfgTempVal" class="text-blue-600 dark:text-blue-400 font-bold">+15°C</span>
           </div>
           <input type="range" id="cfgTemp" min="-25" max="35" value="15" step="1" class="w-full accent-blue-500">
           <p id="tempEffectNote" class="text-[11px] text-slate-400 mt-1">Оптимальная температура (100% емкости).</p>
@@ -341,65 +458,99 @@
 
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="font-semibold block mb-1">Вес всех заказов (кг):</label>
-            <input type="number" id="cfgCargo" min="0" max="30" value="8" step="1" class="w-full border border-slate-300 rounded-xl p-2 text-center font-bold">
-            <span class="text-[10px] text-slate-400">Снижается на точках</span>
+            <label class="font-semibold block mb-1">Вес груза (кг):</label>
+            <input type="number" id="cfgCargo" min="0" max="30" value="8" step="1" class="w-full border border-slate-300 dark:border-slate-700 rounded-xl p-2 text-center font-bold bg-slate-50 dark:bg-slate-800 dark:text-white">
           </div>
           <div>
             <label class="font-semibold block mb-1">Вес курьера (кг):</label>
-            <input type="number" id="cfgRider" min="40" max="140" value="75" step="1" class="w-full border border-slate-300 rounded-xl p-2 text-center font-bold">
+            <input type="number" id="cfgRider" min="40" max="140" value="75" step="1" class="w-full border border-slate-300 dark:border-slate-700 rounded-xl p-2 text-center font-bold bg-slate-50 dark:bg-slate-800 dark:text-white">
           </div>
         </div>
 
         <div>
           <div class="flex justify-between font-semibold mb-1">
             <span>Встречный ветер:</span>
-            <span id="cfgWindVal" class="text-slate-600 font-bold">5 км/ч</span>
+            <span id="cfgWindVal" class="text-slate-600 dark:text-slate-300 font-bold">5 км/ч</span>
           </div>
-          <input type="range" id="cfgWind" min="0" max="40" value="5" step="5" class="w-full accent-slate-700">
+          <input type="range" id="cfgWind" min="0" max="40" value="5" step="5" class="w-full accent-slate-700 dark:accent-slate-400">
         </div>
 
-        <div class="pt-2 border-t border-slate-200">
-          <label class="font-semibold block mb-1 text-slate-500">OpenRouteService API Key (опционально):</label>
-          <input type="text" id="cfgApiKey" placeholder="Встроен демо-ключ" class="w-full border border-slate-300 rounded-xl p-2 text-xs font-mono text-slate-600">
+        <div class="pt-2 border-t border-slate-200 dark:border-slate-800">
+          <label class="font-semibold block mb-1 text-slate-600 dark:text-slate-400">FastAPI Backend URL:</label>
+          <input type="text" id="cfgApiUrl" placeholder="http://localhost:8000 (пусто для авто)" class="w-full border border-slate-300 dark:border-slate-700 rounded-xl p-2 text-xs font-mono text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800">
         </div>
       </div>
 
-      <button id="btnSaveSettings" class="w-full mt-4 bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow-lg transition">
-        Сохранить в память устройства
+      <button id="btnSaveSettings" class="w-full mt-4 bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-bold py-3 rounded-2xl shadow-lg transition">
+        Сохранить настройки
       </button>
     </div>
   </div>
 
-  <!-- Модальное окно пакетного импорта смены (Мульти-заказ) -->
-  <div id="batchModal" class="hidden fixed inset-0 z-30 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md p-5 max-h-[92vh] overflow-y-auto">
+  <!-- Модальное окно выбора города (Замена prompt) -->
+  <div id="cityModal" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-xs p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+          <i class="fa-solid fa-city text-blue-600"></i> Сменить город
+        </h3>
+        <button id="btnCloseCityModal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <input type="text" id="cityModalInput" placeholder="Например: Караганда" class="w-full border border-slate-300 dark:border-slate-700 rounded-xl p-2 text-xs bg-slate-50 dark:bg-slate-800 font-medium dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+      <button id="btnSaveCityModal" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-xl text-xs transition">
+        Применить
+      </button>
+    </div>
+  </div>
+
+  <!-- Модальное окно добавления закладки (Замена prompt) -->
+  <div id="bookmarkModal" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-xs p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+          <i class="fa-solid fa-star text-amber-500"></i> Новая закладка
+        </h3>
+        <button id="btnCloseBookmarkModal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <p class="text-[11px] text-slate-400">Сохранить текущую точку Старта как закладку:</p>
+      <input type="text" id="bookmarkNameInput" placeholder="Например: База / Хаб" class="w-full border border-slate-300 dark:border-slate-700 rounded-xl p-2 text-xs bg-slate-50 dark:bg-slate-800 font-medium dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+      <button id="btnSaveBookmarkModal" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 rounded-xl text-xs transition">
+        Сохранить
+      </button>
+    </div>
+  </div>
+
+  <!-- Модальное окно пакетного импорта смены -->
+  <div id="batchModal" class="hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 max-h-[92vh] overflow-y-auto custom-scroll border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-600 flex items-center justify-center">
+          <div class="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
             <i class="fa-solid fa-boxes-stacked"></i>
           </div>
           <div>
-            <h3 class="font-bold text-base text-slate-800">Импорт смены (Мульти-заказ)</h3>
-            <p class="text-[11px] text-slate-400">Вставьте адреса из чата или рабочего приложения</p>
+            <h3 class="font-bold text-base text-slate-800 dark:text-slate-100">Импорт смены (Мульти-заказ)</h3>
+            <p class="text-[11px] text-slate-400">Вставьте адреса из чата или приложения</p>
           </div>
         </div>
-        <button id="btnCloseBatch" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+        <button id="btnCloseBatch" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
 
       <div class="space-y-3 text-xs">
-        <textarea id="batchText" rows="6" placeholder="Вставьте адреса по одному на строке, например:&#10;Бухар-Жырау 50&#10;Гоголя 34&#10;пр. Республики 12" class="w-full border border-slate-300 rounded-xl p-3 text-xs text-slate-700 bg-slate-50 font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"></textarea>
+        <textarea id="batchText" rows="6" placeholder="Вставьте адреса по одному на строку:&#10;Бухар-Жырау 50&#10;Гоголя 34&#10;пр. Республики 12" class="w-full border border-slate-300 dark:border-slate-700 rounded-2xl p-3 text-xs text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"></textarea>
         
-        <div class="p-2.5 bg-blue-50 rounded-xl text-[11px] text-blue-700 flex items-start gap-2 border border-blue-100">
+        <div class="p-2.5 bg-blue-50 dark:bg-blue-950/40 rounded-xl text-[11px] text-blue-700 dark:text-blue-300 flex items-start gap-2 border border-blue-100 dark:border-blue-900/50">
           <i class="fa-solid fa-wand-magic-sparkles text-sm mt-0.5"></i>
-          <div>
-            Система автоматически геокодирует адреса и выстроит цепочку: <b>Заказ 1 🔵 ➔ Заказ 2 🔵 ➔ Заказ 3 🔵</b>
-          </div>
+          <div>Система геокодирует адреса и выстроит последовательный маршрут доставок.</div>
         </div>
 
-        <button id="btnRunBatch" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2">
+        <button id="btnRunBatch" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-2xl shadow-md transition flex items-center justify-center gap-2">
           <i class="fa-solid fa-map-location-dot"></i>
           <span id="btnRunBatchText">Распознать и расставить заказы</span>
         </button>
@@ -407,1219 +558,7 @@
     </div>
   </div>
 
-  <!-- JavaScript: Логика Мульти-точек, Направления, Стрелок, Закладок и Гаража -->
-  <script>
-    const DEFAULT_ORS_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjdhN2FlNzVjNDkyZTRkNmJiOTc0OWZkYWI5MWZiMzBjIiwiaCI6Im11cm11cjY0In0=";
-
-    const DEFAULT_PRESETS = {
-      courier_standard: { name: "Курьерский стандарт", capacityWh: 720, weightKg: 32, desc: "Minako / Колхозник" },
-      courier_heavy: { name: "Курьерский дальнобойный", capacityWh: 1200, weightKg: 38, desc: "60V 20Ah" },
-      city_compact: { name: "Городской легкий", capacityWh: 374.4, weightKg: 20, desc: "36V 10.4Ah" }
-    };
-
-    // Цвета для отрезков маршрута (чтобы легко отличать направление каждого этапа)
-    const LEG_COLORS = [
-      '#2563EB', // Отрезок 1: Синий
-      '#9333EA', // Отрезок 2: Фиолетовый
-      '#D97706', // Отрезок 3: Янтарный
-      '#DB2777', // Отрезок 4: Малиновый
-      '#0891B2', // Отрезок 5: Бирюзовый
-      '#EA580C', // Отрезок 6: Оранжевый
-    ];
-    const RETURN_LEG_COLOR = '#059669'; // Изумрудный для возврата на Старт
-
-    // Загрузка кастомного байка и закладок из LocalStorage
-    let savedCustomBike = null;
-    try { savedCustomBike = JSON.parse(localStorage.getItem('ebike_custom_bike')); } catch(e) {}
-
-    const DEFAULT_BOOKMARKS = [
-      { id: 'b1', name: 'Склад / База', icon: 'fa-warehouse', lat: 49.8019, lon: 73.1021 },
-      { id: 'b2', name: 'Дом', icon: 'fa-house', lat: 49.7900, lon: 73.1100 },
-      { id: 'b3', name: 'Центр / Хаб', icon: 'fa-store', lat: 49.7960, lon: 73.1080 }
-    ];
-
-    let savedBookmarks = null;
-    try { savedBookmarks = JSON.parse(localStorage.getItem('ebike_bookmarks')); } catch(e) {}
-    let bookmarks = (savedBookmarks && savedBookmarks.length > 0) ? savedBookmarks : DEFAULT_BOOKMARKS;
-
-    // ------------------- Состояние приложения -------------------
-    let state = {
-      clickMode: 'start', // 'start' | 'add_stop' | 'end'
-      isRoundTrip: false,
-      startPoint: [49.8019, 73.1021], // [lat, lon]
-      waypoints: [
-        [49.7960, 73.1080] // Заказ 1
-      ],
-      endPoint: [49.7900, 73.1100],
-      bikeType: savedCustomBike ? 'custom' : 'courier_standard',
-      customBike: savedCustomBike || { volts: 48, ah: 21, weightKg: 35, powerW: 500 },
-      initialCharge: 85,
-      tempC: 15,
-      cargoKg: 8,
-      riderKg: 75,
-      headwindKmh: 5,
-      apiKey: localStorage.getItem('ebike_ors_key') || DEFAULT_ORS_KEY,
-      calculatedRoutes: null,
-      selectedRouteIdx: 0
-    };
-
-    // ------------------- Инициализация карты Leaflet -------------------
-    const map = L.map('map', { zoomControl: false }).setView([49.7960, 73.1060], 13);
-    L.control.zoom({ position: 'topright' }).addTo(map);
-
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-    }).addTo(map);
-
-    let mapMarkers = [];
-    let routeLayersGroup = L.layerGroup().addTo(map);
-
-    // Маркеры точек
-    function createMarkerIcon(type, number = 1) {
-      if (type === 'start') {
-        return L.divIcon({
-          className: '',
-          html: '<div style="background:#10b981; width:34px; height:34px; border-radius:50%; border:3px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:white; font-size:13px;"><i class="fa-solid fa-play" style="margin-left:2px;"></i></div>',
-          iconSize: [34, 34],
-          iconAnchor: [17, 17]
-        });
-      } else if (type === 'end') {
-        return L.divIcon({
-          className: '',
-          html: '<div style="background:#ef4444; width:34px; height:34px; border-radius:50%; border:3px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:white; font-size:13px;"><i class="fa-solid fa-flag-checkered"></i></div>',
-          iconSize: [34, 34],
-          iconAnchor: [17, 17]
-        });
-      } else {
-        const markerColor = LEG_COLORS[(number - 1) % LEG_COLORS.length] || '#2563eb';
-        return L.divIcon({
-          className: '',
-          html: `<div style="background:${markerColor}; width:30px; height:30px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:12px;">${number}</div>`,
-          iconSize: [30, 30],
-          iconAnchor: [15, 15]
-        });
-      }
-    }
-
-    function refreshMarkers() {
-      mapMarkers.forEach(m => map.removeLayer(m));
-      mapMarkers = [];
-
-      // Старт
-      const sm = L.marker(state.startPoint, { icon: createMarkerIcon('start'), draggable: true }).addTo(map);
-      sm.bindTooltip("Точка Старта 🟢");
-      sm.on('dragend', (e) => {
-        state.startPoint = [e.target.getLatLng().lat, e.target.getLatLng().lng];
-      });
-      mapMarkers.push(sm);
-
-      // Промежуточные заказы
-      state.waypoints.forEach((wp, idx) => {
-        const wm = L.marker(wp, { icon: createMarkerIcon('waypoint', idx + 1), draggable: true }).addTo(map);
-        wm.bindTooltip(`Заказ #${idx + 1} 🔵 (кликните для удаления)`);
-        
-        // Попап с кнопкой индивидуального удаления конкретной точки
-        wm.bindPopup(`
-          <div style="min-width: 140px; text-align: center; padding: 4px;">
-            <b style="font-size: 13px; color: #1e293b;">Заказ #${idx + 1} 🔵</b>
-            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">${wp[0].toFixed(4)}, ${wp[1].toFixed(4)}</div>
-            <button onclick="removeWaypoint(${idx})" style="margin-top: 8px; width: 100%; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; border-radius: 8px; padding: 6px 10px; font-weight: bold; font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
-              <i class="fa-solid fa-trash-can"></i> Удалить эту точку
-            </button>
-          </div>
-        `);
-
-        wm.on('dragend', (e) => {
-          state.waypoints[idx] = [e.target.getLatLng().lat, e.target.getLatLng().lng];
-        });
-        mapMarkers.push(wm);
-      });
-
-      // Финиш (если не закольцовано)
-      if (!state.isRoundTrip) {
-        const em = L.marker(state.endPoint, { icon: createMarkerIcon('end'), draggable: true }).addTo(map);
-        em.bindTooltip("Финиш 🔴");
-        em.on('dragend', (e) => {
-          state.endPoint = [e.target.getLatLng().lat, e.target.getLatLng().lng];
-        });
-        mapMarkers.push(em);
-      }
-
-      renderWaypointsChips();
-    }
-
-    // Рендер чипов промежуточных точек в верхней панели
-    function renderWaypointsChips() {
-      const strip = document.getElementById('activeWaypointsStrip');
-      const container = document.getElementById('waypointsChips');
-      const countEl = document.getElementById('waypointsCount');
-      if (!strip || !container) return;
-
-      if (state.waypoints.length === 0) {
-        strip.classList.add('hidden');
-        return;
-      }
-
-      strip.classList.remove('hidden');
-      countEl.innerText = `${state.waypoints.length} ${state.waypoints.length === 1 ? 'заказ' : (state.waypoints.length < 5 ? 'заказа' : 'заказов')}`;
-      container.innerHTML = state.waypoints.map((wp, idx) => {
-        const markerColor = LEG_COLORS[idx % LEG_COLORS.length] || '#2563eb';
-        return `
-          <div class="flex items-center gap-1.5 bg-white text-slate-800 border border-slate-200/90 rounded-lg px-2 py-0.5 text-[11px] font-semibold flex-shrink-0 shadow-xs">
-            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${markerColor};"></span>
-            <span>Заказ #${idx + 1}</span>
-            <button onclick="removeWaypoint(${idx})" title="Удалить эту точку" class="text-slate-300 hover:text-rose-600 p-0.5 rounded transition">
-              <i class="fa-solid fa-xmark text-[10px]"></i>
-            </button>
-          </div>
-        `;
-      }).join('');
-    }
-
-    // Удаление конкретной промежуточной точки по индексу
-    window.removeWaypoint = function(idx) {
-      if (idx >= 0 && idx < state.waypoints.length) {
-        state.waypoints.splice(idx, 1);
-        refreshMarkers();
-      }
-    };
-
-    refreshMarkers();
-
-    // ------------------- Закладки (Избранные места) -------------------
-    const bookmarksList = document.getElementById('bookmarksList');
-
-    function renderBookmarks() {
-      bookmarksList.innerHTML = bookmarks.map(b => `
-        <div class="flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-xl px-2.5 py-1 shadow-sm transition active:scale-95 cursor-pointer whitespace-nowrap">
-          <div onclick="selectBookmark(${b.lat}, ${b.lon})" class="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-            <i class="fa-solid ${b.icon || 'fa-location-dot'} text-amber-500 text-[11px]"></i>
-            <span>${b.name}</span>
-          </div>
-          <button onclick="removeBookmark('${b.id}', event)" class="text-slate-300 hover:text-rose-500 ml-1 text-[10px] p-0.5">
-            <i class="fa-solid fa-xmark"></i>
-          </button>
-        </div>
-      `).join('');
-    }
-
-    window.selectBookmark = function(lat, lon) {
-      if (state.clickMode === 'start') {
-        state.startPoint = [lat, lon];
-        setClickMode('add_stop');
-      } else if (state.clickMode === 'add_stop') {
-        state.waypoints.push([lat, lon]);
-      } else if (state.clickMode === 'end') {
-        state.endPoint = [lat, lon];
-        setClickMode('add_stop');
-      }
-      map.panTo([lat, lon]);
-      refreshMarkers();
-    };
-
-    window.removeBookmark = function(id, e) {
-      e.stopPropagation();
-      bookmarks = bookmarks.filter(b => b.id !== id);
-      localStorage.setItem('ebike_bookmarks', JSON.stringify(bookmarks));
-      renderBookmarks();
-    };
-
-    document.getElementById('btnAddBookmark').onclick = () => {
-      const name = prompt("Введите название закладки для текущей точки Старта:", "Моя база");
-      if (name && name.trim()) {
-        const newBm = {
-          id: 'bm_' + Date.now(),
-          name: name.trim(),
-          icon: 'fa-star',
-          lat: state.startPoint[0],
-          lon: state.startPoint[1]
-        };
-        bookmarks.push(newBm);
-        localStorage.setItem('ebike_bookmarks', JSON.stringify(bookmarks));
-        renderBookmarks();
-      }
-    };
-
-    renderBookmarks();
-
-    // ------------------- Клики по карте -------------------
-    map.on('click', (e) => {
-      const lat = parseFloat(e.latlng.lat.toFixed(6));
-      const lng = parseFloat(e.latlng.lng.toFixed(6));
-
-      if (state.clickMode === 'start') {
-        state.startPoint = [lat, lng];
-        setClickMode('add_stop');
-      } else if (state.clickMode === 'add_stop') {
-        state.waypoints.push([lat, lng]);
-      } else if (state.clickMode === 'end') {
-        state.endPoint = [lat, lng];
-        setClickMode('add_stop');
-      }
-      refreshMarkers();
-    });
-
-    const modeStartBtn = document.getElementById('modeStart');
-    const modeAddStopBtn = document.getElementById('modeAddStop');
-    const modeEndBtn = document.getElementById('modeEnd');
-    const topStatusText = document.getElementById('topStatusText');
-
-    function setClickMode(mode) {
-      state.clickMode = mode;
-      [modeStartBtn, modeAddStopBtn, modeEndBtn].forEach(b => {
-        b.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 text-slate-600 hover:bg-slate-100 transition";
-      });
-
-      if (mode === 'start') {
-        modeStartBtn.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 bg-emerald-500 text-white shadow-sm transition";
-        topStatusText.innerText = "Кликните для выбора точки Старта 🟢";
-      } else if (mode === 'add_stop') {
-        modeAddStopBtn.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 bg-blue-600 text-white shadow-sm transition";
-        topStatusText.innerText = `Добавление точек заказов 🔵 (уже ${state.waypoints.length})`;
-      } else if (mode === 'end') {
-        modeEndBtn.className = "flex-1 py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 bg-rose-500 text-white shadow-sm transition";
-        topStatusText.innerText = "Кликните для выбора точки Финиша 🔴";
-      }
-    }
-
-    modeStartBtn.onclick = () => setClickMode('start');
-    modeAddStopBtn.onclick = () => setClickMode('add_stop');
-    modeEndBtn.onclick = () => setClickMode('end');
-
-    // Отмена последней добавленной точки (Назад)
-    document.getElementById('btnUndoStop').onclick = () => {
-      if (state.waypoints.length > 0) {
-        state.waypoints.pop();
-        refreshMarkers();
-      }
-    };
-
-    document.getElementById('btnClearStops').onclick = () => {
-      state.waypoints = [];
-      refreshMarkers();
-      setClickMode('add_stop');
-    };
-
-    // Тумблер "Туда и обратно"
-    const toggleRoundTrip = document.getElementById('toggleRoundTrip');
-    toggleRoundTrip.onchange = (e) => {
-      state.isRoundTrip = e.target.checked;
-      modeEndBtn.disabled = state.isRoundTrip;
-      modeEndBtn.style.opacity = state.isRoundTrip ? '0.4' : '1.0';
-      if (state.isRoundTrip && state.clickMode === 'end') {
-        setClickMode('add_stop');
-      }
-      refreshMarkers();
-    };
-
-    // Геолокация
-    document.getElementById('btnGeo').onclick = () => {
-      if (!navigator.geolocation) return alert("Геолокация недоступна");
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          state.startPoint = [pos.coords.latitude, pos.coords.longitude];
-          map.setView(state.startPoint, 14);
-          refreshMarkers();
-          setClickMode('add_stop');
-          updateLiveWeather(state.startPoint[0], state.startPoint[1]);
-        },
-        (err) => alert("Ошибка геолокации: " + err.message),
-        { enableHighAccuracy: true }
-      );
-    };
-
-    // ------------------- Автоматическая загрузка погоды (Open-Meteo API) -------------------
-    async function updateLiveWeather(lat, lon) {
-      try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=temperature_2m,wind_speed_10m,weather_code`;
-        const res = await fetch(url);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!data.current) return;
-
-        const temp = Math.round(data.current.temperature_2m);
-        const wind = Math.round(data.current.wind_speed_10m);
-        const code = data.current.weather_code;
-
-        state.tempC = temp;
-        state.headwindKmh = wind;
-
-        let icon = '☀️';
-        if (code >= 1 && code <= 3) icon = '⛅';
-        else if (code >= 45 && code <= 48) icon = '🌫️';
-        else if (code >= 51 && code <= 67) icon = '🌧️';
-        else if (code >= 71 && code <= 77) icon = '❄️';
-        else if (code >= 80 && code <= 99) icon = '⛈️';
-
-        const badge = document.getElementById('liveWeatherBadge');
-        document.getElementById('weatherIcon').innerText = icon;
-        document.getElementById('weatherTemp').innerText = `${temp > 0 ? '+' : ''}${temp}°C • 💨 ${wind} км/ч`;
-        badge.classList.remove('hidden');
-
-        // Авто-обновление полей в модалке настроек
-        document.getElementById('cfgTemp').value = temp;
-        document.getElementById('cfgTempVal').innerText = `${temp > 0 ? '+' : ''}${temp}°C`;
-        document.getElementById('cfgWind').value = wind;
-        document.getElementById('cfgWindVal').innerText = `${wind} км/ч`;
-      } catch (err) {
-        console.log("Weather update skipped:", err);
-      }
-    }
-
-    // Загрузка погоды при старте приложения
-    updateLiveWeather(state.startPoint[0], state.startPoint[1]);
-
-    // ------------------- Умный парсер адресов и ссылок (2ГИС, Яндекс, Google) -------------------
-    function extractCoordsFromText(text) {
-      if (!text) return null;
-      const t = text.trim();
-
-      // 1. 2ГИС ссылка (m=lon%2Clat или points/lon%2Clat)
-      const m2gis = t.match(/2gis\.[a-z.]+\/.*?(?:m=|points\/)(-?[0-9.]+)[,%2C]+(-?[0-9.]+)/i);
-      if (m2gis) return [parseFloat(m2gis[2]), parseFloat(m2gis[1])];
-
-      // 2. Яндекс Карты ссылка (ll=lon%2Clat или pt=lon,lat)
-      const mYa = t.match(/[?&](?:ll|pt|whatshere%5Bpoint%5D)=(-?[0-9.]+)[,%2C]+(-?[0-9.]+)/i);
-      if (mYa) return [parseFloat(mYa[2]), parseFloat(mYa[1])];
-
-      // 3. Google Maps ссылка (/@lat,lon или ?q=lat,lon)
-      const mG = t.match(/(?:\/@|[?&]q=)(-?[0-9.]+)[,%2C]+(-?[0-9.]+)/i);
-      if (mG) return [parseFloat(mG[1]), parseFloat(mG[2])];
-
-      // 4. Прямые координаты: 49.8019, 73.1021
-      const mC = t.match(/^(-?[0-9]{1,2}\.[0-9]+)[\s,]+(-?[0-9]{1,3}\.[0-9]+)$/);
-      if (mC) return [parseFloat(mC[1]), parseFloat(mC[2])];
-
-      return null;
-    }
-
-    async function geocodeAddress(addressText) {
-      try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressText)}&limit=1`;
-        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-        if (!res.ok) return null;
-        const data = await res.json();
-        if (data && data.length > 0) {
-          return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-        }
-      } catch (e) {}
-      return null;
-    }
-
-    // Применение найденных координат к текущему режиму точек
-    function applyFoundCoordinates(coords, label = "") {
-      if (!coords) return;
-      const [lat, lon] = coords;
-
-      if (state.clickMode === 'start') {
-        state.startPoint = [lat, lon];
-        updateLiveWeather(lat, lon);
-        setClickMode('add_stop');
-      } else if (state.clickMode === 'add_stop') {
-        state.waypoints.push([lat, lon]);
-      } else if (state.clickMode === 'end') {
-        state.endPoint = [lat, lon];
-        setClickMode('add_stop');
-      }
-
-      map.setView([lat, lon], 15);
-      refreshMarkers();
-    }
-
-    // Кнопка умной вставки из буфера обмена
-    document.getElementById('btnSmartPaste').onclick = async () => {
-      let text = '';
-      try {
-        text = await navigator.clipboard.readText();
-      } catch (err) {
-        text = prompt("Вставьте скопированный адрес или ссылку (2ГИС / Яндекс / координаты):", "");
-      }
-
-      if (!text || !text.trim()) return;
-
-      const directCoords = extractCoordsFromText(text);
-      if (directCoords) {
-        applyFoundCoordinates(directCoords, "Локация из ссылки");
-      } else {
-        // Пробуем геокодировать как текстовый адрес
-        const btn = document.getElementById('btnSmartPaste');
-        const oldHtml = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
-        const geoCoords = await geocodeAddress(text);
-        btn.innerHTML = oldHtml;
-
-        if (geoCoords) {
-          applyFoundCoordinates(geoCoords, text);
-        } else {
-          alert(`Не удалось распознать адрес: "${text}". Проверьте написание.`);
-        }
-      }
-    };
-
-    // ------------------- Поиск адресов с живыми подсказками -------------------
-    const searchInput = document.getElementById('searchInput');
-    const btnClearSearch = document.getElementById('btnClearSearch');
-    const searchSuggestions = document.getElementById('searchSuggestions');
-    let searchDebounceTimer = null;
-
-    searchInput.oninput = (e) => {
-      const q = e.target.value.trim();
-      btnClearSearch.classList.toggle('hidden', q.length === 0);
-
-      clearTimeout(searchDebounceTimer);
-      if (q.length < 3) {
-        searchSuggestions.classList.add('hidden');
-        return;
-      }
-
-      searchDebounceTimer = setTimeout(async () => {
-        try {
-          const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=4`;
-          const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-          if (!res.ok) return;
-          const data = await res.json();
-          if (!data || data.length === 0) {
-            searchSuggestions.classList.add('hidden');
-            return;
-          }
-
-          searchSuggestions.innerHTML = data.map(item => `
-            <div onclick="selectSearchSuggestion(${item.lat}, ${item.lon}, '${item.display_name.replace(/'/g, "\\'")}')" class="p-2 hover:bg-blue-50 cursor-pointer text-slate-700 flex items-start gap-2 transition">
-              <i class="fa-solid fa-location-dot text-blue-500 text-xs mt-0.5 flex-shrink-0"></i>
-              <div class="line-clamp-1 text-[11px] font-medium leading-tight">${item.display_name}</div>
-            </div>
-          `).join('');
-          searchSuggestions.classList.remove('hidden');
-        } catch (err) {
-          console.log("Search error:", err);
-        }
-      }, 350);
-    };
-
-    window.selectSearchSuggestion = function(lat, lon, name) {
-      applyFoundCoordinates([parseFloat(lat), parseFloat(lon)], name);
-      searchSuggestions.classList.add('hidden');
-      searchInput.value = '';
-      btnClearSearch.classList.add('hidden');
-    };
-
-    btnClearSearch.onclick = () => {
-      searchInput.value = '';
-      btnClearSearch.classList.add('hidden');
-      searchSuggestions.classList.add('hidden');
-    };
-
-    // Закрытие подсказок при клике вне поля
-    document.addEventListener('click', (e) => {
-      if (!searchInput.contains(e.target) && !searchSuggestions.contains(e.target)) {
-        searchSuggestions.classList.add('hidden');
-      }
-    });
-
-    // ------------------- Модалка пакетного импорта смены (Мульти-заказ) -------------------
-    const batchModal = document.getElementById('batchModal');
-    const btnOpenBatch = document.getElementById('btnOpenBatch');
-    const btnCloseBatch = document.getElementById('btnCloseBatch');
-    const btnRunBatch = document.getElementById('btnRunBatch');
-    const btnRunBatchText = document.getElementById('btnRunBatchText');
-    const batchText = document.getElementById('batchText');
-
-    btnOpenBatch.onclick = () => batchModal.classList.remove('hidden');
-    btnCloseBatch.onclick = () => batchModal.classList.add('hidden');
-
-    btnRunBatch.onclick = async () => {
-      const raw = batchText.value.trim();
-      if (!raw) return alert("Введите хотя бы один адрес.");
-
-      const lines = raw.split('\n').map(l => l.replace(/^[0-9]+[.)\s-]*/, '').trim()).filter(l => l.length > 0);
-      if (lines.length === 0) return alert("Список адресов пуст.");
-
-      btnRunBatch.disabled = true;
-      btnRunBatchText.innerText = `Геокодируем адреса (0 / ${lines.length})...`;
-
-      let addedCount = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        btnRunBatchText.innerText = `Ищем адрес ${i + 1} из ${lines.length}...`;
-
-        let coords = extractCoordsFromText(line);
-        if (!coords) {
-          coords = await geocodeAddress(line);
-        }
-
-        if (coords) {
-          state.waypoints.push(coords);
-          addedCount++;
-        }
-      }
-
-      btnRunBatch.disabled = false;
-      btnRunBatchText.innerText = "Распознать и расставить заказы";
-      batchModal.classList.add('hidden');
-      batchText.value = '';
-
-      if (addedCount > 0) {
-        refreshMarkers();
-        alert(`Успешно добавлено ${addedCount} точек заказов!`);
-        if (state.waypoints.length > 0) {
-          map.fitBounds(L.latLngBounds([state.startPoint, ...state.waypoints]), { padding: [50, 50] });
-        }
-      } else {
-        alert("Не удалось распознать введенные адреса. Попробуйте уточнить название города или улицы.");
-      }
-    };
-
-    // ------------------- Физический движок -------------------
-    class EbikePhysics {
-      static getTemperatureCapacityFactor(tempC) {
-        if (tempC >= 20.0) return 1.00;
-        if (tempC >= 10.0) return 0.95 + 0.05 * ((tempC - 10.0) / 10.0);
-        if (tempC >= 0.0) return 0.88 + 0.07 * (tempC / 10.0);
-        if (tempC >= -10.0) return 0.74 + 0.14 * ((tempC + 10.0) / 10.0);
-        if (tempC >= -20.0) return 0.55 + 0.19 * ((tempC + 20.0) / 10.0);
-        return Math.max(0.40, 0.55 + 0.015 * (tempC + 20.0));
-      }
-
-      static calculateSegment(distKm, ascentM, descentM, durationSec, cargoKg, riderKg, bikeWeightKg, headwindKmh, tempC) {
-        const totalMass = bikeWeightKg + riderKg + cargoKg;
-        const distM = distKm * 1000.0;
-        const speedMs = durationSec > 0 ? (distM / durationSec) : (20.0 / 3.6);
-
-        const fRoll = 0.007 * totalMass * 9.81;
-        const workRoll = fRoll * distM;
-
-        const airDensity = 1.225 * (288.15 / (tempC + 273.15));
-        const relSpeedMs = speedMs + (headwindKmh / 3.6);
-        const fAero = 0.5 * airDensity * 0.62 * Math.pow(relSpeedMs, 2);
-        const workAero = fAero * distM;
-
-        const workClimb = totalMass * 9.81 * Math.max(0, ascentM);
-        const workRegen = totalMass * 9.81 * Math.max(0, descentM) * 0.05;
-
-        const netWork = Math.max(0, workRoll + workAero + workClimb - workRegen);
-        const wh = (netWork / 0.80) / 3600.0;
-
-        return {
-          wh,
-          rollingWh: Math.round(workRoll / 0.8 / 3600),
-          aeroWh: Math.round(workAero / 0.8 / 3600),
-          climbWh: Math.round(workClimb / 0.8 / 3600)
-        };
-      }
-    }
-
-    // ------------------- Запрос маршрута в OpenRouteService -------------------
-    async function fetchMultiRoute(points, apiKey) {
-      const url = "https://api.openrouteservice.org/v2/directions/cycling-electric/geojson";
-      const coords = points.map(p => [p[1], p[0]]); // [lon, lat]
-
-      const body = {
-        coordinates: coords,
-        elevation: true
-      };
-
-      if (coords.length === 2) {
-        body.alternative_routes = { target_count: 2, share_factor: 0.8, weight_factor: 1.6 };
-      }
-
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Authorization": apiKey,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Ошибка ORS API (${res.status})`);
-      }
-
-      return await res.json();
-    }
-
-    // Вспомогательная функция вычисления азимута (направления) между 2 точками
-    function calculateBearing(lat1, lon1, lat2, lon2) {
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
-      const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
-                Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
-      return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-    }
-
-    // ------------------- Расчет маршрута -------------------
-    const btnCalculate = document.getElementById('btnCalculate');
-    const resultsCard = document.getElementById('resultsCard');
-
-    btnCalculate.onclick = async () => {
-      const allPoints = [state.startPoint, ...state.waypoints];
-      if (state.isRoundTrip) {
-        allPoints.push(state.startPoint);
-      } else {
-        allPoints.push(state.endPoint);
-      }
-
-      btnCalculate.disabled = true;
-      btnCalculate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Оптимизация и расчет физики...</span>';
-
-      try {
-        const data = await fetchMultiRoute(allPoints, state.apiKey);
-        const features = data.features;
-        if (!features || features.length === 0) throw new Error("Маршрут не найден");
-
-        let capacityWh = 720;
-        let bikeWeightKg = 32;
-        if (state.bikeType === 'custom') {
-          capacityWh = state.customBike.volts * state.customBike.ah;
-          bikeWeightKg = state.customBike.weightKg;
-        } else {
-          const pr = DEFAULT_PRESETS[state.bikeType];
-          capacityWh = pr.capacityWh;
-          bikeWeightKg = pr.weightKg;
-        }
-
-        const tempFactor = EbikePhysics.getTemperatureCapacityFactor(state.tempC);
-        const effectiveCapWh = capacityWh * tempFactor;
-
-        state.calculatedRoutes = features.map((feat, rIdx) => {
-          const segments = feat.properties.segments;
-          const coords = feat.geometry.coordinates; // [lon, lat, ele]
-
-          let totalDistKm = 0;
-          let totalAscentM = 0;
-          let totalDescentM = 0;
-          let totalDurationSec = 0;
-          let totalWh = 0;
-
-          let rollingWhSum = 0;
-          let aeroWhSum = 0;
-          let climbWhSum = 0;
-
-          const segBreakdown = [];
-          const numSegs = segments.length;
-          const deliveryCount = Math.max(1, state.isRoundTrip ? numSegs - 1 : numSegs);
-
-          // Извлечение точных срезов координат для каждого отрезка
-          const legSegments = [];
-
-          segments.forEach((s, sIdx) => {
-            const dKm = s.distance / 1000.0;
-            const asc = s.ascent || 0;
-            const desc = s.descent || 0;
-
-            const isReturn = state.isRoundTrip && (sIdx === numSegs - 1);
-            let cargoCurrent = 0;
-            if (isReturn) {
-              cargoCurrent = 0; // налегке
-            } else {
-              cargoCurrent = state.cargoKg * Math.max(0, (1 - (sIdx / deliveryCount)));
-            }
-
-            const calc = EbikePhysics.calculateSegment(
-              dKm, asc, desc, s.duration, cargoCurrent, state.riderKg,
-              bikeWeightKg, state.headwindKmh, state.tempC
-            );
-
-            totalDistKm += dKm;
-            totalAscentM += asc;
-            totalDescentM += desc;
-            totalDurationSec += s.duration;
-            totalWh += calc.wh;
-
-            rollingWhSum += calc.rollingWh;
-            aeroWhSum += calc.aeroWh;
-            climbWhSum += calc.climbWh;
-
-            // Индексы точек этого отрезка в полном массиве координат
-            const startWp = s.steps[0].way_points[0];
-            const endWp = s.steps[s.steps.length - 1].way_points[1];
-            const legCoords = coords.slice(startWp, endWp + 1).map(c => [c[1], c[0]]);
-
-            const legColor = isReturn ? RETURN_LEG_COLOR : LEG_COLORS[sIdx % LEG_COLORS.length];
-
-            legSegments.push({
-              idx: sIdx + 1,
-              name: isReturn ? "Возврат на Старт" : (sIdx === 0 ? "Старт ➔ Заказ #1" : `Заказ #${sIdx} ➔ #${sIdx + 1}`),
-              color: legColor,
-              coords: legCoords,
-              distKm: parseFloat(dKm.toFixed(2)),
-              ascentM: Math.round(asc),
-              cargoKg: parseFloat(cargoCurrent.toFixed(1)),
-              wh: parseFloat(calc.wh.toFixed(1)),
-              isReturn
-            });
-
-            segBreakdown.push({
-              idx: sIdx + 1,
-              color: legColor,
-              distKm: parseFloat(dKm.toFixed(2)),
-              ascentM: Math.round(asc),
-              cargoKg: parseFloat(cargoCurrent.toFixed(1)),
-              wh: parseFloat(calc.wh.toFixed(1)),
-              isReturn
-            });
-          });
-
-          // Профиль высот
-          const elevationProfile = [];
-          let cumDist = 0;
-          for (let i = 0; i < coords.length; i++) {
-            const pt = coords[i];
-            const ele = pt[2] || 0;
-            if (i > 0) {
-              const dLat = (pt[1] - coords[i-1][1]) * 111.0;
-              const dLon = (pt[0] - coords[i-1][0]) * 71.5;
-              cumDist += Math.sqrt(dLat*dLat + dLon*dLon);
-            }
-            elevationProfile.push({ distKm: parseFloat(cumDist.toFixed(2)), ele: Math.round(ele) });
-          }
-
-          const consumedPercent = (totalWh / effectiveCapWh) * 100.0;
-          const finalCharge = state.initialCharge - consumedPercent;
-
-          let safety = "safe";
-          if (finalCharge <= 0) safety = "critical";
-          else if (finalCharge < 15) safety = "warning";
-
-          return {
-            name: rIdx === 0 ? "Основной маршрут" : "Альтернативный",
-            isEco: rIdx > 0,
-            legSegments,
-            allCoords: coords.map(c => [c[1], c[0]]),
-            elevationProfile,
-            distKm: parseFloat(totalDistKm.toFixed(2)),
-            ascentM: Math.round(totalAscentM),
-            durationMin: Math.round(totalDurationSec / 60),
-            energyWh: parseFloat(totalWh.toFixed(1)),
-            energyPercent: parseFloat(consumedPercent.toFixed(1)),
-            finalCharge: parseFloat(finalCharge.toFixed(1)),
-            effectiveCapWh: Math.round(effectiveCapWh),
-            tempFactor,
-            safety,
-            segBreakdown,
-            details: { rollingWh: rollingWhSum, aeroWh: aeroWhSum, climbWh: climbWhSum }
-          };
-        });
-
-        renderRouteLines(state.calculatedRoutes[0]);
-        displayResults(0);
-      } catch(err) {
-        alert("Ошибка построения маршрута: " + err.message);
-      } finally {
-        btnCalculate.disabled = false;
-        btnCalculate.innerHTML = '<i class="fa-solid fa-bolt text-amber-400"></i><span id="btnCalculateText">Рассчитать маршрут и физику</span>';
-      }
-    };
-
-    // Отрисовка цветных отрезков со стрелочками направления движения
-    function renderRouteLines(route) {
-      routeLayersGroup.clearLayers();
-
-      if (!route || !route.legSegments) return;
-
-      route.legSegments.forEach((leg) => {
-        // Линия отрезка с индивидуальным цветом
-        const poly = L.polyline(leg.coords, {
-          color: leg.color,
-          weight: 6,
-          opacity: 0.85,
-          dashArray: leg.isReturn ? '8, 8' : null
-        }).addTo(routeLayersGroup);
-
-        poly.bindTooltip(`<b>${leg.name}</b><br>Дистанция: ${leg.distKm} км | Расход: ${leg.wh} Вт·ч`, { sticky: true });
-
-        // Размещение стрелок направления движения по ходу трека
-        const step = Math.max(6, Math.floor(leg.coords.length / 4));
-        for (let i = Math.floor(step / 2); i < leg.coords.length - 1; i += step) {
-          const p1 = leg.coords[i];
-          const p2 = leg.coords[i + 1];
-          const angle = calculateBearing(p1[0], p1[1], p2[0], p2[1]);
-
-          const arrowIcon = L.divIcon({
-            className: '',
-            html: `<div style="transform: rotate(${angle}deg); width:18px; height:18px; display:flex; align-items:center; justify-content:center;">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="${leg.color}">
-                <path d="M12 2L4 20l8-4 8 4z" stroke="#ffffff" stroke-width="1.5"/>
-              </svg>
-            </div>`,
-            iconSize: [18, 18],
-            iconAnchor: [9, 9]
-          });
-
-          L.marker(p1, { icon: arrowIcon, interactive: false }).addTo(routeLayersGroup);
-        }
-      });
-
-      if (route.allCoords && route.allCoords.length > 0) {
-        map.fitBounds(L.latLngBounds(route.allCoords), { padding: [50, 50] });
-      }
-    }
-
-    // Отображение карточки результатов
-    function displayResults(idx) {
-      state.selectedRouteIdx = idx;
-      const r = state.calculatedRoutes[idx];
-
-      renderRouteLines(r);
-
-      // Бейдж "Туда и обратно"
-      document.getElementById('badgeRoundTrip').className = state.isRoundTrip
-        ? "text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200"
-        : "hidden";
-
-      // Вкладки маршрутов
-      const tabsEl = document.getElementById('routeTabsContainer');
-      if (state.calculatedRoutes.length > 1) {
-        tabsEl.innerHTML = state.calculatedRoutes.map((item, i) => `
-          <button onclick="displayResults(${i})" class="flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition ${i === idx ? 'bg-slate-900 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
-            <span>${item.isEco ? '🍃 Эко-пологий' : '⚡ Быстрый'}</span>
-            <span class="text-[10px] opacity-75">${item.energyWh} Вт·ч</span>
-          </button>
-        `).join('');
-        tabsEl.classList.remove('hidden');
-      } else {
-        tabsEl.classList.add('hidden');
-      }
-
-      // Баннер безопасности
-      const banner = document.getElementById('safetyBanner');
-      if (r.safety === 'critical') {
-        banner.className = "p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5 bg-rose-100 text-rose-800 border border-rose-200";
-        banner.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-base"></i><div><b>КРИТИЧЕСКИЙ РАЗРЯД!</b> Батареи не хватит (${r.energyPercent}% расхода при остатке ${state.initialCharge}%). Необходима подзарядка!</div>`;
-      } else if (r.safety === 'warning') {
-        banner.className = "p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5 bg-amber-100 text-amber-800 border border-amber-200";
-        banner.innerHTML = `<i class="fa-solid fa-circle-exclamation text-base"></i><div><b>Внимание:</b> останется всего ${r.finalCharge}% заряда. Рекомендуется экономичный темп.</div>`;
-      } else {
-        banner.className = "p-3 rounded-xl mb-3 text-xs flex items-center gap-2.5 bg-emerald-100 text-emerald-800 border border-emerald-200";
-        banner.innerHTML = `<i class="fa-solid fa-circle-check text-base"></i><div><b>Маршрут безопасен:</b> заряда хватит с хорошим запасом. Остаток после смены: <b>${r.finalCharge}%</b>.</div>`;
-      }
-
-      document.getElementById('resDistance').innerText = r.distKm + ' км';
-      document.getElementById('resDuration').innerText = r.durationMin + ' мин';
-      document.getElementById('resAscent').innerText = '+' + r.ascentM + ' м';
-      document.getElementById('resEnergy').innerText = r.energyWh + ' Вт·ч';
-      document.getElementById('resDropPercent').innerText = '-' + r.energyPercent + '% АКБ';
-      document.getElementById('resFinalCharge').innerText = r.finalCharge + '%';
-      document.getElementById('resEffectiveCap').innerText = 'Эфф. емкость: ' + r.effectiveCapWh + ' Вт·ч';
-
-      renderElevationSvg(r.elevationProfile);
-
-      // Посегментный отчет с цветными бейджами направления
-      const segContainer = document.getElementById('segmentsListContainer');
-      segContainer.innerHTML = r.segBreakdown.map(s => `
-        <div class="flex justify-between items-center p-2 rounded-xl bg-white border border-slate-200/80 shadow-xs">
-          <div class="flex items-center gap-2">
-            <span class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: ${s.color};"></span>
-            <div>
-              <b class="text-slate-800 text-xs">${s.isReturn ? '🔄 Возврат на Старт' : `📦 Отрезок #${s.idx}`}</b>
-              <div class="text-slate-400 text-[10px]">${s.distKm} км • Груз: ${s.cargoKg} кг • Подъем +${s.ascentM}м</div>
-            </div>
-          </div>
-          <div class="text-right font-bold text-slate-800 text-xs">
-            ${s.wh} Вт·ч
-          </div>
-        </div>
-      `).join('');
-
-      document.getElementById('energyBreakdownList').innerHTML = `
-        <div class="flex justify-between"><span>Качение шин:</span><b>${r.details.rollingWh} Вт·ч</b></div>
-        <div class="flex justify-between"><span>Сопротивление воздуха (короб):</span><b>${r.details.aeroWh} Вт·ч</b></div>
-        <div class="flex justify-between"><span>Подъемы в гору:</span><b>${r.details.climbWh} Вт·ч</b></div>
-        <div class="flex justify-between pt-1 border-t border-slate-200"><span>Эффективность Li-ion на холоде:</span><b>${Math.round(r.tempFactor * 100)}%</b></div>
-      `;
-
-      resultsCard.classList.remove('hidden');
-    }
-
-    // Построение SVG-графика высот
-    function renderElevationSvg(profile) {
-      const svg = document.getElementById('elevationSvg');
-      if (!profile || profile.length < 2) {
-        svg.innerHTML = '';
-        return;
-      }
-
-      const step = Math.max(1, Math.floor(profile.length / 80));
-      const sampled = profile.filter((_, i) => i % step === 0);
-
-      const eles = sampled.map(p => p.ele);
-      const minEle = Math.min(...eles);
-      const maxEle = Math.max(...eles);
-      const eleDiff = Math.max(10, maxEle - minEle);
-
-      document.getElementById('elevStatsText').innerText = `мин ${minEle}м / макс ${maxEle}м (перепад ${maxEle - minEle}м)`;
-
-      const width = 400;
-      const height = 90;
-      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-
-      let pathD = `M 0 ${height}`;
-      sampled.forEach((p, idx) => {
-        const x = (idx / (sampled.length - 1)) * width;
-        const normY = (p.ele - minEle) / eleDiff;
-        const y = height - (normY * (height - 18)) - 8;
-        pathD += ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
-      });
-      pathD += ` L ${width} ${height} Z`;
-
-      svg.innerHTML = `
-        <defs>
-          <linearGradient id="elevGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#10b981" stop-opacity="0.6"/>
-            <stop offset="100%" stop-color="#10b981" stop-opacity="0.05"/>
-          </linearGradient>
-        </defs>
-        <path d="${pathD}" fill="url(#elevGrad)" stroke="#10b981" stroke-width="2"/>
-      `;
-    }
-
-    document.getElementById('closeResults').onclick = () => resultsCard.classList.add('hidden');
-    document.getElementById('btnCloseResults').onclick = () => resultsCard.classList.add('hidden');
-
-    // ------------------- Настройки Гаража -------------------
-    const settingsModal = document.getElementById('settingsModal');
-    const cfgBike = document.getElementById('cfgBike');
-    const customBikeBox = document.getElementById('customBikeBox');
-    const customBikeBadge = document.getElementById('customBikeBadge');
-
-    function updateCustomBikeBadge() {
-      if (state.bikeType === 'custom') {
-        customBikeBadge.classList.remove('hidden');
-      } else {
-        customBikeBadge.classList.add('hidden');
-      }
-    }
-    updateCustomBikeBadge();
-
-    cfgBike.onchange = (e) => {
-      if (e.target.value === 'custom') {
-        customBikeBox.classList.remove('hidden');
-      } else {
-        customBikeBox.classList.add('hidden');
-      }
-    };
-
-    function updateCustomWhCalc() {
-      const v = parseFloat(document.getElementById('customVolts').value);
-      const ah = parseFloat(document.getElementById('customAh').value);
-      const wh = Math.round(v * ah);
-      document.getElementById('customWhCalc').innerText = `${v}V × ${ah}Ah = ${wh} Вт·ч`;
-    }
-    document.getElementById('customVolts').onchange = updateCustomWhCalc;
-    document.getElementById('customAh').oninput = updateCustomWhCalc;
-
-    document.getElementById('btnSettings').onclick = () => {
-      cfgBike.value = state.bikeType;
-      if (state.bikeType === 'custom') {
-        customBikeBox.classList.remove('hidden');
-        document.getElementById('customVolts').value = state.customBike.volts;
-        document.getElementById('customAh').value = state.customBike.ah;
-        document.getElementById('customWeight').value = state.customBike.weightKg;
-        document.getElementById('customPower').value = state.customBike.powerW;
-        updateCustomWhCalc();
-      } else {
-        customBikeBox.classList.add('hidden');
-      }
-
-      document.getElementById('cfgCharge').value = state.initialCharge;
-      document.getElementById('cfgChargeVal').innerText = state.initialCharge + '%';
-      document.getElementById('cfgTemp').value = state.tempC;
-      document.getElementById('cfgTempVal').innerText = (state.tempC > 0 ? '+' : '') + state.tempC + '°C';
-      document.getElementById('cfgCargo').value = state.cargoKg;
-      document.getElementById('cfgRider').value = state.riderKg;
-      document.getElementById('cfgWind').value = state.headwindKmh;
-      document.getElementById('cfgWindVal').innerText = state.headwindKmh + ' км/ч';
-      document.getElementById('cfgApiKey').value = state.apiKey === DEFAULT_ORS_KEY ? '' : state.apiKey;
-      settingsModal.classList.remove('hidden');
-    };
-
-    document.getElementById('btnCloseSettings').onclick = () => settingsModal.classList.add('hidden');
-
-    document.getElementById('cfgCharge').oninput = (e) => {
-      document.getElementById('cfgChargeVal').innerText = e.target.value + '%';
-    };
-
-    document.getElementById('cfgTemp').oninput = (e) => {
-      const v = parseInt(e.target.value);
-      document.getElementById('cfgTempVal').innerText = (v > 0 ? '+' : '') + v + '°C';
-      const f = EbikePhysics.getTemperatureCapacityFactor(v);
-      const note = document.getElementById('tempEffectNote');
-      if (v < 0) {
-        note.innerText = `❄️ Мороз! Доступная емкость АКБ падает до ${Math.round(f * 100)}%.`;
-        note.className = "text-[11px] text-rose-500 font-medium mt-1";
-      } else {
-        note.innerText = `Нормальная температура (емкость ${Math.round(f * 100)}%).`;
-        note.className = "text-[11px] text-slate-400 mt-1";
-      }
-    };
-
-    document.getElementById('cfgWind').oninput = (e) => {
-      document.getElementById('cfgWindVal').innerText = e.target.value + ' км/ч';
-    };
-
-    document.getElementById('btnSaveSettings').onclick = () => {
-      state.bikeType = cfgBike.value;
-      if (state.bikeType === 'custom') {
-        state.customBike = {
-          volts: parseFloat(document.getElementById('customVolts').value),
-          ah: parseFloat(document.getElementById('customAh').value),
-          weightKg: parseFloat(document.getElementById('customWeight').value),
-          powerW: parseFloat(document.getElementById('customPower').value)
-        };
-        localStorage.setItem('ebike_custom_bike', JSON.stringify(state.customBike));
-      } else {
-        localStorage.removeItem('ebike_custom_bike');
-      }
-
-      state.initialCharge = parseInt(document.getElementById('cfgCharge').value);
-      state.tempC = parseInt(document.getElementById('cfgTemp').value);
-      state.cargoKg = parseFloat(document.getElementById('cfgCargo').value);
-      state.riderKg = parseFloat(document.getElementById('cfgRider').value);
-      state.headwindKmh = parseInt(document.getElementById('cfgWind').value);
-
-      const customKey = document.getElementById('cfgApiKey').value.trim();
-      if (customKey) {
-        state.apiKey = customKey;
-        localStorage.setItem('ebike_ors_key', customKey);
-      } else {
-        state.apiKey = DEFAULT_ORS_KEY;
-        localStorage.removeItem('ebike_ors_key');
-      }
-
-      updateCustomBikeBadge();
-      settingsModal.classList.add('hidden');
-    };
-
-    // ------------------- Экспорт маршрута в GPX (Открыть в навигаторе) -------------------
-    document.getElementById('btnExportGpx').onclick = () => {
-      if (!state.calculatedRoutes || state.calculatedRoutes.length === 0) return;
-      const r = state.calculatedRoutes[state.selectedRouteIdx];
-      if (!r || !r.allCoords || r.allCoords.length === 0) return;
-
-      const now = new Date().toISOString();
-      let gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="EBike-AI-Router" xmlns="http://www.topografix.com/GPX/1/1">
-  <metadata>
-    <name>${r.name} (${r.distKm} km, ${r.energyWh} Wh)</name>
-    <time>${now}</time>
-  </metadata>
-  <wpt lat="${state.startPoint[0]}" lon="${state.startPoint[1]}"><name>Старт</name></wpt>\n`;
-
-      state.waypoints.forEach((wp, idx) => {
-        gpx += `  <wpt lat="${wp[0]}" lon="${wp[1]}"><name>Заказ #${idx + 1}</name></wpt>\n`;
-      });
-
-      if (!state.isRoundTrip) {
-        gpx += `  <wpt lat="${state.endPoint[0]}" lon="${state.endPoint[1]}"><name>Финиш</name></wpt>\n`;
-      }
-
-      gpx += `  <trk>\n    <name>${r.name}</name>\n    <trkseg>\n`;
-      r.allCoords.forEach((pt) => {
-        gpx += `      <trkpt lat="${pt[0]}" lon="${pt[1]}"></trkpt>\n`;
-      });
-      gpx += `    </trkseg>\n  </trk>\n</gpx>`;
-
-      const blob = new Blob([gpx], { type: 'application/gpx+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ebike_route_${Date.now()}.gpx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    };
-
-    // ------------------- Energy-Aware TSP (Оптимизация порядка доставок) -------------------
-    document.getElementById('btnOptimizeOrder').onclick = () => {
-      const n = state.waypoints.length;
-      if (n < 2) {
-        alert("Для оптимизации порядка добавьте хотя бы 2 заказа.");
-        return;
-      }
-
-      function permute(arr) {
-        if (arr.length <= 1) return [arr];
-        const res = [];
-        for (let i = 0; i < arr.length; i++) {
-          const current = arr[i];
-          const rem = arr.slice(0, i).concat(arr.slice(i + 1));
-          for (const p of permute(rem)) {
-            res.push([current].concat(p));
-          }
-        }
-        return res;
-      }
-
-      function distEst(p1, p2) {
-        const dLat = (p2[0] - p1[0]) * 111.0;
-        const dLon = (p2[1] - p1[1]) * 71.5;
-        return Math.sqrt(dLat * dLat + dLon * dLon);
-      }
-
-      function evaluateOrderEnergy(orderIndices) {
-        let prevPoint = state.startPoint;
-        let totalEnergy = 0;
-        const totalCargo = state.cargoKg;
-        const count = orderIndices.length;
-
-        for (let i = 0; i < count; i++) {
-          const currentPoint = state.waypoints[orderIndices[i]];
-          const dist = distEst(prevPoint, currentPoint);
-          const currentCargo = totalCargo * Math.max(0, (1 - (i / count)));
-          const totalMass = 32 + 75 + currentCargo;
-          totalEnergy += dist * totalMass;
-          prevPoint = currentPoint;
-        }
-
-        const finalPoint = state.isRoundTrip ? state.startPoint : state.endPoint;
-        const returnDist = distEst(prevPoint, finalPoint);
-        totalEnergy += returnDist * (32 + 75 + 0);
-
-        return totalEnergy;
-      }
-
-      let bestOrder = null;
-      let minEnergy = Infinity;
-
-      if (n <= 7) {
-        const initialIndices = Array.from({ length: n }, (_, i) => i);
-        const allPerms = permute(initialIndices);
-        for (const p of allPerms) {
-          const score = evaluateOrderEnergy(p);
-          if (score < minEnergy) {
-            minEnergy = score;
-            bestOrder = p;
-          }
-        }
-      } else {
-        const unvisited = Array.from({ length: n }, (_, i) => i);
-        bestOrder = [];
-        let curr = state.startPoint;
-        while (unvisited.length > 0) {
-          let closestIdx = 0;
-          let closestDist = Infinity;
-          for (let i = 0; i < unvisited.length; i++) {
-            const d = distEst(curr, state.waypoints[unvisited[i]]);
-            if (d < closestDist) {
-              closestDist = d;
-              closestIdx = i;
-            }
-          }
-          const chosen = unvisited.splice(closestIdx, 1)[0];
-          bestOrder.push(chosen);
-          curr = state.waypoints[chosen];
-        }
-      }
-
-      if (bestOrder) {
-        state.waypoints = bestOrder.map(i => state.waypoints[i]);
-        refreshMarkers();
-        alert("✨ Порядок заказов оптимизирован! Маршрут перестроен для минимального расхода энергии.");
-      }
-    };
-  </script>
+  <!-- JavaScript Module -->
+  <script src="app.js"></script>
 </body>
 </html>

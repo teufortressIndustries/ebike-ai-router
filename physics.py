@@ -98,16 +98,109 @@ class EnergyCalculationResult:
     can_complete_route: bool
     safety_status: str  # "safe", "warning", "critical"
     details: Dict[str, float]
+    effective_crr: float = 0.007
+    road_condition: str = "dry"
     segments: List[SegmentCalculationResult] = field(default_factory=list)
+
+
+# Коэффициенты трения качения для типов покрытий OpenRouteService
+# https://openrouteservice-backend.readthedocs.io/en/latest/api/extra-info/
+SURFACE_CRR_MAP: Dict[int, float] = {
+    0: 0.007,   # Unknown (по умолчанию гладкий асфальт)
+    1: 0.007,   # Paved
+    2: 0.020,   # Unpaved
+    3: 0.007,   # Asphalt
+    4: 0.008,   # Concrete
+    5: 0.018,   # Cobblestone (брусчатка)
+    6: 0.008,   # Metal
+    7: 0.010,   # Wood
+    8: 0.015,   # Compacted Gravel
+    9: 0.018,   # Fine Gravel
+    10: 0.022,  # Gravel
+    11: 0.025,  # Dirt
+    12: 0.030,  # Ground / Mud
+    13: 0.035,  # Ice / Snow
+    14: 0.015,  # Paving Stones (тротуарная плитка)
+    15: 0.060,  # Sand
+    16: 0.025,  # Woodchips
+    17: 0.030,  # Grass
+    18: 0.020,  # Grass Paver
+}
+
+SURFACE_NAMES_RU: Dict[int, str] = {
+    0: "Асфальт",
+    1: "Асфальт/покрытие",
+    2: "Без покрытия",
+    3: "Асфальт",
+    4: "Бетон",
+    5: "Брусчатка",
+    6: "Металл",
+    7: "Дерево",
+    8: "Утрамбованный гравий",
+    9: "Мелкий гравий",
+    10: "Гравий",
+    11: "Грунт",
+    12: "Грунтовая дорога",
+    13: "Снег / лед",
+    14: "Тротуарная плитка",
+    15: "Песок",
+    16: "Щепа",
+    17: "Трава",
+    18: "Экоплитка",
+}
 
 
 class EbikePhysicsModel:
     GRAVITY = 9.81  # м/с^2
     AIR_DENSITY_STP = 1.225  # кг/м^3 при 15°C
-    ROLLING_COEFF = 0.007  # Коэффициент трения качения велопокрышек по асфальту
+    ROLLING_COEFF = 0.007  # Базовый коэффициент трения качения велопокрышек по асфальту
     CDA_COURIER = 0.62  # Площадь * коэф лобового сопротивления курьера с термосумкой (м^2)
     SYSTEM_EFFICIENCY = 0.80  # КПД связки: аккумулятор -> контроллер -> мотор -> колесо
     AVERAGE_SPEED_KMH = 20.0  # Средняя скорость движения курьера в городе (км/ч)
+
+    @classmethod
+    def get_effective_crr(
+        cls,
+        base_crr: float = 0.007,
+        road_condition: str = "dry"
+    ) -> float:
+        """
+        Корректирует коэффициент трения качения в зависимости от дорожных и сезонных условий.
+        - 'dry': сухое чистое полотно (множитель 1.0)
+        - 'wet': мокрое полотно / дождь / лужи (множитель 1.30)
+        - 'slush': зима, снежная каша, слякоть (множитель 3.20, минимум 0.028)
+        """
+        cond = (road_condition or "dry").lower()
+        if cond == "wet":
+            return round(base_crr * 1.30, 4)
+        elif cond == "slush":
+            return round(max(base_crr * 3.20, 0.028), 4)
+        return round(base_crr, 4)
+
+    @classmethod
+    def calculate_weighted_crr_from_ors_summary(
+        cls,
+        surface_summary: List[Dict[str, Any]],
+        road_condition: str = "dry"
+    ) -> float:
+        """
+        Вычисляет взвешенный C_rr на основе сводки extra_info.surface от OpenRouteService.
+        """
+        if not surface_summary:
+            return cls.get_effective_crr(cls.ROLLING_COEFF, road_condition)
+
+        total_amount = sum(item.get("amount", 0.0) for item in surface_summary)
+        if total_amount <= 0:
+            return cls.get_effective_crr(cls.ROLLING_COEFF, road_condition)
+
+        weighted_base = 0.0
+        for item in surface_summary:
+            code = int(item.get("value", 0))
+            amt = item.get("amount", 0.0)
+            base_crr = SURFACE_CRR_MAP.get(code, cls.ROLLING_COEFF)
+            weighted_base += (amt / total_amount) * base_crr
+
+        return cls.get_effective_crr(weighted_base, road_condition)
 
     @classmethod
     def get_temperature_capacity_factor(cls, temp_c: float) -> float:
@@ -143,10 +236,14 @@ class EbikePhysicsModel:
         temp_c: float = 15.0,
         headwind_kmh: float = 0.0,
         regen_efficiency: float = 0.05,
+        rolling_coeff: Optional[float] = None,
+        road_condition: str = "dry",
     ) -> EnergyCalculationResult:
         """
-        Рассчитывает потребление энергии для одиночного отрезка или суммарного маршрута.
+        Рассчитывает потребление энергии для одиночного отрезка или суммарного маршрута с учетом дорожного покрытия.
         """
+        eff_crr = rolling_coeff if rolling_coeff is not None else cls.get_effective_crr(cls.ROLLING_COEFF, road_condition)
+
         if distance_km <= 0:
             effective_cap = battery_capacity_wh * cls.get_temperature_capacity_factor(temp_c)
             return EnergyCalculationResult(
@@ -163,7 +260,9 @@ class EbikePhysicsModel:
                 final_charge_percent=initial_charge_percent,
                 can_complete_route=True,
                 safety_status="safe",
-                details={"rolling_wh": 0.0, "aero_wh": 0.0, "gravity_wh": 0.0}
+                details={"rolling_wh": 0.0, "aero_wh": 0.0, "gravity_wh": 0.0},
+                effective_crr=eff_crr,
+                road_condition=road_condition
             )
 
         total_mass_kg = bike_weight_kg + rider_weight_kg + cargo_weight_kg
@@ -176,8 +275,8 @@ class EbikePhysicsModel:
             speed_ms = cls.AVERAGE_SPEED_KMH / 3.6
             duration_min = (distance_km / cls.AVERAGE_SPEED_KMH) * 60.0
 
-        # 1. Сила и работа сопротивления качению: W_roll = F_roll * d
-        f_roll = cls.ROLLING_COEFF * total_mass_kg * cls.GRAVITY
+        # 1. Сила и работа сопротивления качению: W_roll = F_roll * d с учетом типа покрытия и слякоти/снега
+        f_roll = eff_crr * total_mass_kg * cls.GRAVITY
         work_roll_joules = f_roll * distance_m
 
         # 2. Аэродинамическое сопротивление: F_aero = 0.5 * rho * CdA * v_rel^2
@@ -237,6 +336,8 @@ class EbikePhysicsModel:
             can_complete_route=can_complete,
             safety_status=safety_status,
             details=details,
+            effective_crr=eff_crr,
+            road_condition=road_condition
         )
 
     @classmethod
@@ -250,18 +351,22 @@ class EbikePhysicsModel:
         initial_charge_percent: float = 100.0,
         temp_c: float = 15.0,
         headwind_kmh: float = 0.0,
-        is_round_trip: bool = False
+        is_round_trip: bool = False,
+        rolling_coeff: Optional[float] = None,
+        road_condition: str = "dry"
     ) -> EnergyCalculationResult:
         """
         Посегментный расчет мульти-доставки.
         На каждом промежуточном заказе вес короба уменьшается.
         Если включен round_trip, обратный путь на базу курьер едет с пустым рюкзаком (0 кг).
         """
+        eff_crr = rolling_coeff if rolling_coeff is not None else cls.get_effective_crr(cls.ROLLING_COEFF, road_condition)
         num_segments = len(segments_data)
         if num_segments == 0:
             return cls.calculate_energy(
                 0, 0, 0, 0, total_cargo_start_kg, rider_weight_kg,
-                bike_weight_kg, battery_capacity_wh, initial_charge_percent, temp_c, headwind_kmh
+                bike_weight_kg, battery_capacity_wh, initial_charge_percent, temp_c, headwind_kmh,
+                rolling_coeff=eff_crr, road_condition=road_condition
             )
 
         temp_factor = cls.get_temperature_capacity_factor(temp_c)
@@ -304,7 +409,9 @@ class EbikePhysicsModel:
                 battery_capacity_wh=battery_capacity_wh,
                 initial_charge_percent=initial_charge_percent,
                 temp_c=temp_c,
-                headwind_kmh=headwind_kmh
+                headwind_kmh=headwind_kmh,
+                rolling_coeff=eff_crr,
+                road_condition=road_condition
             )
 
             total_distance += seg_dist
@@ -354,5 +461,149 @@ class EbikePhysicsModel:
             can_complete_route=can_complete,
             safety_status=safety_status,
             details={k: round(v, 2) for k, v in details_sum.items()},
+            effective_crr=eff_crr,
+            road_condition=road_condition,
             segments=segment_results
         )
+
+
+def haversine_distance_km(p1: List[float], p2: List[float]) -> float:
+    """Вычисляет расстояние между двумя точками [lat, lon] по формуле гаверсинусов (км)."""
+    import math
+    lat1, lon1 = math.radians(p1[0]), math.radians(p1[1])
+    lat2, lon2 = math.radians(p2[0]), math.radians(p2[1])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat / 2.0)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2.0)**2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return 6371.0 * c
+
+
+@dataclass
+class DeliveryOrderOptimizationResult:
+    optimized_indices: List[int]
+    reordered_waypoints: List[List[float]]
+    original_estimated_energy_wh: float
+    optimized_estimated_energy_wh: float
+    energy_savings_percent: float
+    explanation: str
+
+
+def optimize_delivery_order(
+    start_point: List[float],
+    waypoints: List[List[float]],
+    end_point: Optional[List[float]] = None,
+    round_trip: bool = False,
+    cargo_weight_kg: float = 6.0,
+    rider_weight_kg: float = 75.0,
+    bike_weight_kg: float = 32.0,
+    road_condition: str = "dry",
+) -> DeliveryOrderOptimizationResult:
+    """
+    Energy-Aware TSP: находит оптимальную последовательность доставок,
+    минимизирующую механическую работу курьера с учетом постепенного сброса веса груза.
+    Координаты задаются в формате [lat, lon].
+    """
+    import itertools
+
+    n = len(waypoints)
+    if n < 2:
+        return DeliveryOrderOptimizationResult(
+            optimized_indices=list(range(n)),
+            reordered_waypoints=waypoints,
+            original_estimated_energy_wh=0.0,
+            optimized_estimated_energy_wh=0.0,
+            energy_savings_percent=0.0,
+            explanation="Для оптимизации порядка требуется как минимум 2 заказа."
+        )
+
+    final_target = start_point if round_trip else (end_point or start_point)
+    eff_crr = EbikePhysicsModel.get_effective_crr(EbikePhysicsModel.ROLLING_COEFF, road_condition)
+
+    def evaluate_order(indices: List[int]) -> float:
+        total_energy_wh = 0.0
+        prev_pt = start_point
+        num_orders = len(indices)
+
+        for i, idx in enumerate(indices):
+            target_pt = waypoints[idx]
+            # Городской коэффициент извилистости сети дорог ~1.32
+            dist_km = haversine_distance_km(prev_pt, target_pt) * 1.32
+            curr_cargo = cargo_weight_kg * max(0.0, 1.0 - (i / max(1, num_orders)))
+            total_mass = bike_weight_kg + rider_weight_kg + curr_cargo
+            
+            # Оценка работы качения и аэродинамики
+            f_roll = eff_crr * total_mass * EbikePhysicsModel.GRAVITY
+            work_j = (f_roll * dist_km * 1000.0) / EbikePhysicsModel.SYSTEM_EFFICIENCY
+            total_energy_wh += work_j / 3600.0
+            prev_pt = target_pt
+
+        # Отрезок на финиш / базу
+        dist_to_finish = haversine_distance_km(prev_pt, final_target) * 1.32
+        empty_mass = bike_weight_kg + rider_weight_kg
+        f_roll_return = eff_crr * empty_mass * EbikePhysicsModel.GRAVITY
+        return_work_j = (f_roll_return * dist_to_finish * 1000.0) / EbikePhysicsModel.SYSTEM_EFFICIENCY
+        total_energy_wh += return_work_j / 3600.0
+
+        return total_energy_wh
+
+    original_indices = list(range(n))
+    original_energy = evaluate_order(original_indices)
+
+    best_indices: List[int] = []
+    best_energy: float = float("inf")
+
+    if n <= 8:
+        # Точный перебор всех перестановок
+        for perm in itertools.permutations(range(n)):
+            e = evaluate_order(list(perm))
+            if e < best_energy:
+                best_energy = e
+                best_indices = list(perm)
+    else:
+        # Энерго-жадный алгоритм
+        unvisited = set(range(n))
+        curr_pt = start_point
+        best_indices = []
+        step = 0
+
+        while unvisited:
+            best_next = None
+            best_cost = float("inf")
+            curr_cargo = cargo_weight_kg * max(0.0, 1.0 - (step / max(1, n)))
+            total_mass = bike_weight_kg + rider_weight_kg + curr_cargo
+
+            for candidate in unvisited:
+                cand_pt = waypoints[candidate]
+                d = haversine_distance_km(curr_pt, cand_pt)
+                cost = d * total_mass
+                if cost < best_cost:
+                    best_cost = cost
+                    best_next = candidate
+
+            best_indices.append(best_next)
+            unvisited.remove(best_next)
+            curr_pt = waypoints[best_next]
+            step += 1
+
+        best_energy = evaluate_order(best_indices)
+
+    savings_pct = 0.0
+    if original_energy > 0:
+        savings_pct = max(0.0, round(((original_energy - best_energy) / original_energy) * 100.0, 1))
+
+    reordered = [waypoints[i] for i in best_indices]
+
+    if savings_pct > 0.5:
+        explanation = f"Оптимальный порядок экономит ~{savings_pct}% энергии за счет разгрузки сумки на ранних этапах пути."
+    else:
+        explanation = "Текущий порядок уже близок к оптимальному по расходу батареи."
+
+    return DeliveryOrderOptimizationResult(
+        optimized_indices=best_indices,
+        reordered_waypoints=reordered,
+        original_estimated_energy_wh=round(original_energy, 1),
+        optimized_estimated_energy_wh=round(best_energy, 1),
+        energy_savings_percent=savings_pct,
+        explanation=explanation
+    )

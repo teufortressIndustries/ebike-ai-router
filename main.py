@@ -18,7 +18,10 @@ from physics import (
     EbikePhysicsModel,
     BIKE_PRESETS,
     BikePreset,
-    create_custom_preset
+    create_custom_preset,
+    SURFACE_NAMES_RU,
+    optimize_delivery_order,
+    DeliveryOrderOptimizationResult
 )
 
 load_dotenv()
@@ -29,7 +32,7 @@ ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/cycling-ele
 app = FastAPI(
     title="E-Bike AI Route & Energy Optimizer",
     description="API для построения маршрутов, мульти-доставок и оптимизации расхода батареи электровелосипедов курьеров",
-    version="2.1.0"
+    version="2.2.0"
 )
 
 app.add_middleware(
@@ -68,12 +71,27 @@ class RouteRequest(BaseModel):
     temp_c: float = Field(15.0, ge=-40.0, le=50.0, description="Температура на улице (°C)")
     initial_charge_percent: float = Field(80.0, ge=1.0, le=100.0, description="Текущий уровень заряда батареи (%)")
     headwind_kmh: float = Field(0.0, ge=0.0, le=100.0, description="Скорость ветра (км/ч)")
+    road_condition: str = Field("dry", description="Состояние дороги: dry (сухо), wet (мокро/лужи), slush (зимняя снежная каша)")
     find_alternatives: bool = Field(True, description="Искать альтернативные маршруты")
 
 
 class ElevationPoint(BaseModel):
     distance_km: float
     elevation_m: float
+
+
+class RouteLeg(BaseModel):
+    index: int
+    name: str
+    distance_km: float
+    duration_minutes: float
+    ascent_m: float
+    descent_m: float
+    energy_wh: float
+    cargo_weight_kg: float
+    is_return: bool
+    color: str
+    coordinates: List[List[float]]  # [[lat, lon], ...] для прямого отображения в Leaflet
 
 
 class RouteDetails(BaseModel):
@@ -94,6 +112,13 @@ class RouteDetails(BaseModel):
     energy_breakdown: Dict[str, float]
     geometry: List[List[float]]
     elevation_profile: List[ElevationPoint]
+    surface_summary: List[Dict[str, Any]] = Field(default_factory=list)
+    surface_labels: List[str] = Field(default_factory=list)
+    surface_warning: Optional[str] = None
+    dominant_surface: str = "Асфальт"
+    effective_crr: float = 0.007
+    road_condition: str = "dry"
+    legs: List[RouteLeg] = Field(default_factory=list)
 
 
 class RouteOptimizationResponse(BaseModel):
@@ -102,6 +127,53 @@ class RouteOptimizationResponse(BaseModel):
     bike_info: Dict[str, Any]
     ambient_info: Dict[str, Any]
     is_round_trip: bool
+
+
+class OptimizeOrderRequest(BaseModel):
+    start_point: List[float] = Field(..., description="[lat, lon] старта")
+    waypoints: List[List[float]] = Field(..., description="Массив точек доставок [[lat, lon], ...]")
+    end_point: Optional[List[float]] = Field(None, description="[lat, lon] финиша (если не закольцован)")
+    round_trip: bool = Field(False, description="Возврат на старт")
+    cargo_weight_kg: float = Field(6.0, ge=0.0, le=50.0)
+    rider_weight_kg: float = Field(75.0, ge=30.0, le=160.0)
+    bike_weight_kg: float = Field(32.0, ge=10.0, le=60.0)
+    road_condition: str = Field("dry")
+
+
+class OptimizeOrderResponse(BaseModel):
+    status: str = "ok"
+    optimized_indices: List[int]
+    reordered_waypoints: List[List[float]]
+    original_estimated_energy_wh: float
+    optimized_estimated_energy_wh: float
+    energy_savings_percent: float
+    explanation: str
+
+
+@app.post("/optimize-order", response_model=OptimizeOrderResponse)
+def optimize_order_endpoint(req: OptimizeOrderRequest):
+    """
+    Энергетический TSP-эндпоинт: переставляет заказы местами так, чтобы минимизировать расход Вт·ч.
+    """
+    res = optimize_delivery_order(
+        start_point=req.start_point,
+        waypoints=req.waypoints,
+        end_point=req.end_point,
+        round_trip=req.round_trip,
+        cargo_weight_kg=req.cargo_weight_kg,
+        rider_weight_kg=req.rider_weight_kg,
+        bike_weight_kg=req.bike_weight_kg,
+        road_condition=req.road_condition
+    )
+    return OptimizeOrderResponse(
+        status="ok",
+        optimized_indices=res.optimized_indices,
+        reordered_waypoints=res.reordered_waypoints,
+        original_estimated_energy_wh=res.original_estimated_energy_wh,
+        optimized_estimated_energy_wh=res.optimized_estimated_energy_wh,
+        energy_savings_percent=res.energy_savings_percent,
+        explanation=res.explanation
+    )
 
 
 @app.get("/health")
@@ -151,6 +223,7 @@ async def _fetch_routes_from_ors(
     body: Dict[str, Any] = {
         "coordinates": coords,
         "elevation": True,
+        "extra_info": ["surface"]
     }
 
     # Альтернативные маршруты доступны только для 2 точек в ORS API
@@ -233,6 +306,20 @@ def _process_routes_energy(
                 "descent_m": summary.get("descent", 0.0),
             })
 
+        # Анализ дорожного покрытия из extra_info
+        extras = feat.get("properties", {}).get("extras", {})
+        surface_summary = extras.get("surface", {}).get("summary", [])
+        
+        weighted_crr = EbikePhysicsModel.calculate_weighted_crr_from_ors_summary(
+            surface_summary, road_condition=req.road_condition
+        )
+
+        dominant_surface = "Асфальт"
+        if surface_summary:
+            top_surf = max(surface_summary, key=lambda x: x.get("amount", 0.0))
+            code = int(top_surf.get("value", 0))
+            dominant_surface = SURFACE_NAMES_RU.get(code, "Асфальт")
+
         energy_res = EbikePhysicsModel.calculate_multistop_energy(
             segments_data=segments_data,
             total_cargo_start_kg=req.cargo_weight_kg,
@@ -242,7 +329,9 @@ def _process_routes_energy(
             initial_charge_percent=req.initial_charge_percent,
             temp_c=req.temp_c,
             headwind_kmh=req.headwind_kmh,
-            is_round_trip=req.round_trip
+            is_round_trip=req.round_trip,
+            rolling_coeff=weighted_crr,
+            road_condition=req.road_condition
         )
 
         # Генерация профиля высот вдоль маршрута
@@ -260,6 +349,69 @@ def _process_routes_energy(
                 distance_km=round(cum_dist, 2),
                 elevation_m=round(ele, 1)
             ))
+
+        # Генерация нарезки отрезков (legs) для фронтенда
+        LEG_COLORS = ["#2563EB", "#9333EA", "#D97706", "#DB2777", "#0891B2", "#EA580C"]
+        RETURN_LEG_COLOR = "#059669"
+
+        legs: List[RouteLeg] = []
+        num_segments = len(segments)
+        delivery_count = max(1, num_segments - 1 if req.round_trip else num_segments)
+
+        for s_idx, seg in enumerate(segments):
+            is_return = req.round_trip and (s_idx == num_segments - 1)
+            if is_return:
+                cargo_curr = 0.0
+                leg_name = "Возврат на Старт"
+                leg_color = RETURN_LEG_COLOR
+            else:
+                cargo_curr = req.cargo_weight_kg * max(0.0, 1.0 - (s_idx / delivery_count))
+                leg_name = "Старт ➔ Заказ #1" if s_idx == 0 else f"Заказ #{s_idx} ➔ #{s_idx + 1}"
+                leg_color = LEG_COLORS[s_idx % len(LEG_COLORS)]
+
+            steps = seg.get("steps", [])
+            if steps and "way_points" in steps[0] and "way_points" in steps[-1]:
+                start_wp = steps[0]["way_points"][0]
+                end_wp = steps[-1]["way_points"][1]
+                # Координаты [lat, lon] для Leaflet
+                leg_coords = [[c[1], c[0]] for c in coords[start_wp:end_wp + 1]]
+            else:
+                leg_coords = [[c[1], c[0]] for c in coords]
+
+            seg_calc = energy_res.segments[s_idx] if s_idx < len(energy_res.segments) else None
+            leg_energy = seg_calc.energy_consumed_wh if seg_calc else 0.0
+
+            legs.append(RouteLeg(
+                index=s_idx + 1,
+                name=leg_name,
+                distance_km=round(seg.get("distance", 0.0) / 1000.0, 2),
+                duration_minutes=round(seg.get("duration", 0.0) / 60.0, 1),
+                ascent_m=round(seg.get("ascent", 0.0), 1),
+                descent_m=round(seg.get("descent", 0.0), 1),
+                energy_wh=round(leg_energy, 1),
+                cargo_weight_kg=round(cargo_curr, 1),
+                is_return=is_return,
+                color=leg_color,
+                coordinates=leg_coords
+            ))
+
+        # Текстовые метки дорожного покрытия
+        surface_labels: List[str] = []
+        if surface_summary:
+            for item in surface_summary:
+                amt = item.get("amount", 0.0)
+                code = int(item.get("value", 0))
+                s_name = SURFACE_NAMES_RU.get(code, "Асфальт")
+                if amt >= 5.0:
+                    surface_labels.append(f"{round(amt)}% {s_name}")
+        if not surface_labels:
+            surface_labels.append("100% Асфальт")
+
+        surface_warning = None
+        if req.road_condition == "slush":
+            surface_warning = "❄️ Зимний режим: сопротивление качения увеличено в 3.2 раза. Будьте осторожны на заснеженных участках."
+        elif req.road_condition == "wet":
+            surface_warning = "🌧️ Дождливая погода: мокрое полотно увеличивает трение на 30%. Остерегайтесь скользкой брусчатки и разметки."
 
         name = "Основной маршрут" if idx == 0 else f"Альтернативный маршрут #{idx}"
 
@@ -280,7 +432,14 @@ def _process_routes_energy(
             safety_status=energy_res.safety_status,
             energy_breakdown=energy_res.details,
             geometry=coords,
-            elevation_profile=profile[::max(1, len(profile)//100)]  # сэмплирование до 100 точек
+            elevation_profile=profile[::max(1, len(profile)//100)],  # сэмплирование до 100 точек
+            surface_summary=surface_summary,
+            surface_labels=surface_labels,
+            surface_warning=surface_warning,
+            dominant_surface=dominant_surface,
+            effective_crr=weighted_crr,
+            road_condition=req.road_condition,
+            legs=legs
         ))
 
     # Рекомендации
@@ -377,3 +536,16 @@ async def optimize_route_get(
         "geometry": primary.geometry,
         "all_routes": [r.model_dump() for r in res.routes]
     }
+
+
+# Монтирование и отдача статического веб-клиента docs/index.html
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+docs_dir = os.path.join(os.path.dirname(__file__), "docs")
+if os.path.exists(docs_dir):
+    app.mount("/static", StaticFiles(directory=docs_dir), name="static")
+
+    @app.get("/", include_in_schema=False)
+    async def serve_index():
+        return FileResponse(os.path.join(docs_dir, "index.html"))
