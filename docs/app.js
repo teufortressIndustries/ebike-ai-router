@@ -22,11 +22,19 @@
     city_compact: { name: "Городской легкий", capacityWh: 374.4, weightKg: 20, desc: "36V 10.4Ah" }
   };
 
-  const DETECTED_API_URL = (window.location.protocol === 'http:' || window.location.protocol === 'https:') && !window.location.hostname.includes('github.io')
+  const DEFAULT_API_URL = 'https://ebike-ai-router.onrender.com';
+  const isLocalFastApi = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && window.location.port === '8000';
+  const DETECTED_API_URL = isLocalFastApi
     ? window.location.origin
-    : 'http://localhost:8000';
-  const SAVED_API_URL = localStorage.getItem('ebike_api_url');
-  const ACTIVE_API_URL = (SAVED_API_URL !== null && SAVED_API_URL.trim() !== '') ? SAVED_API_URL.trim() : DETECTED_API_URL;
+    : ((window.location.protocol === 'http:' || window.location.protocol === 'https:') && !window.location.hostname.includes('github.io') && window.location.hostname.includes('onrender.com'))
+      ? window.location.origin
+      : DEFAULT_API_URL;
+  let SAVED_API_URL = localStorage.getItem('ebike_api_url');
+  if (SAVED_API_URL && (SAVED_API_URL.includes('localhost:8000') || SAVED_API_URL.includes('127.0.0.1:8000')) && (window.location.hostname.includes('github.io') || window.location.protocol === 'file:')) {
+    localStorage.removeItem('ebike_api_url');
+    SAVED_API_URL = null;
+  }
+  const ACTIVE_API_URL = ((SAVED_API_URL !== null && SAVED_API_URL.trim() !== '') ? SAVED_API_URL.trim() : DETECTED_API_URL).replace(/\/+$/, '');
 
   let savedCustomBike = null;
   try { savedCustomBike = JSON.parse(localStorage.getItem('ebike_custom_bike')); } catch (e) { }
@@ -1828,7 +1836,7 @@
       state.riderKg = parseFloat(document.getElementById('cfgRider').value);
       state.headwindKmh = parseInt(document.getElementById('cfgWind').value);
 
-      const customApi = document.getElementById('cfgApiUrl').value.trim();
+      const customApi = document.getElementById('cfgApiUrl').value.trim().replace(/\/+$/, '');
       state.apiBaseUrl = customApi || DETECTED_API_URL;
       if (customApi) {
         localStorage.setItem('ebike_api_url', customApi);

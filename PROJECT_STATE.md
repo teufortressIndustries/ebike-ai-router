@@ -4,7 +4,8 @@
 > **Активная ветка:** `feature/physics-and-ui`  
 > **Форк пользователя:** `git@github.com:teufortressIndustries/ebike-ai-router.git`  
 > **Upstream репозиторий:** `https://github.com/qlmiran/ebike-ai-router.git`  
-> **Публичный Live Demo:** `https://teufortressindustries.github.io/ebike-ai-router/`
+> **Публичный Live Demo:** `https://teufortressindustries.github.io/ebike-ai-router/`  
+> **Облачный FastAPI Backend (Render):** `https://ebike-ai-router.onrender.com/`
 
 ---
 
