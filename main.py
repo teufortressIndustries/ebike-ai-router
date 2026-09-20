@@ -19,7 +19,7 @@ def get_route(start_lon: float, start_lat: float, end_lon: float, end_lat: float
         return {"error": "Не удалось построить маршрут. Проверьте координаты."}
 
     distance_km = response['features'][0]['properties']['summary']['distance'] / 1000
-    elevation_m = response['features'][0]['properties']['summary']['ascent']
+    elevation_m = response['features'][0]['properties']['summary'].get('ascent', 0)
     geometry = response['features'][0]['geometry']['coordinates']
 
     predicted_drop = model.predict([[distance_km, elevation_m, weight, temp]])[0]
