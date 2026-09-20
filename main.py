@@ -1,8 +1,9 @@
 """
 FastAPI Backend для ebike-ai-router:
+- Поддержка мульти-точечных маршрутов (Waypoints) и режима "Туда и обратно" (Round Trip)
 - Асинхронные запросы к OpenRouteService через httpx
-- Расчет реалистичного расхода энергии через physics.py
-- Построение и сравнение альтернативных маршрутов (Быстрый vs Эко-пологий)
+- Расчет реалистичного расхода энергии через physics.py с учетом сброса веса на точках
+- Генерация профиля высот для интерактивных графиков
 """
 
 import os
@@ -13,7 +14,12 @@ from pydantic import BaseModel, Field
 import httpx
 from dotenv import load_dotenv
 
-from physics import EbikePhysicsModel, BIKE_PRESETS, BikePreset
+from physics import (
+    EbikePhysicsModel,
+    BIKE_PRESETS,
+    BikePreset,
+    create_custom_preset
+)
 
 load_dotenv()
 
@@ -22,8 +28,8 @@ ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/cycling-ele
 
 app = FastAPI(
     title="E-Bike AI Route & Energy Optimizer",
-    description="API для построения маршрутов и оптимизации расхода батареи электровелосипедов курьеров",
-    version="2.0.0"
+    description="API для построения маршрутов, мульти-доставок и оптимизации расхода батареи электровелосипедов курьеров",
+    version="2.1.0"
 )
 
 app.add_middleware(
@@ -36,18 +42,38 @@ app.add_middleware(
 
 
 class RouteRequest(BaseModel):
-    start_lon: float = Field(..., ge=-180, le=180, description="Долгота точки старта")
-    start_lat: float = Field(..., ge=-90, le=90, description="Широта точки старта")
-    end_lon: float = Field(..., ge=-180, le=180, description="Долгота точки финиша")
-    end_lat: float = Field(..., ge=-90, le=90, description="Широта точки финиша")
-    bike_preset: str = Field("courier_standard", description="Пресет электровелосипеда")
-    custom_battery_capacity_wh: Optional[float] = Field(None, gt=50, le=5000, description="Кастомная емкость АКБ (Вт*ч)")
-    cargo_weight_kg: float = Field(5.0, ge=0.0, le=50.0, description="Вес термосумки/груза (кг)")
+    # Поддержка одиночного отрезка
+    start_lon: Optional[float] = Field(None, ge=-180, le=180)
+    start_lat: Optional[float] = Field(None, ge=-90, le=90)
+    end_lon: Optional[float] = Field(None, ge=-180, le=180)
+    end_lat: Optional[float] = Field(None, ge=-90, le=90)
+    
+    # Поддержка мульти-точек: список [[lon, lat], [lon, lat], ...]
+    coordinates: Optional[List[List[float]]] = Field(
+        None,
+        description="Массив координат маршрута [[lon, lat], ...]. Если указан, переопределяет start/end."
+    )
+    round_trip: bool = Field(False, description="Закольцевать маршрут (Туда и обратно / возврат на базу)")
+    
+    # Настройки транспорта
+    bike_preset: str = Field("courier_standard", description="Пресет байка или 'custom'")
+    custom_voltage_v: Optional[float] = Field(None, ge=24.0, le=96.0, description="Напряжение АКБ (Вольты)")
+    custom_capacity_ah: Optional[float] = Field(None, ge=2.0, le=80.0, description="Емкость АКБ (Ампер-часы)")
+    custom_bike_weight_kg: Optional[float] = Field(None, ge=10.0, le=60.0)
+    custom_battery_capacity_wh: Optional[float] = Field(None, gt=50, le=5000)
+    
+    # Условия
+    cargo_weight_kg: float = Field(6.0, ge=0.0, le=50.0, description="Вес сумки на старте (кг)")
     rider_weight_kg: float = Field(75.0, ge=30.0, le=160.0, description="Вес курьера (кг)")
     temp_c: float = Field(15.0, ge=-40.0, le=50.0, description="Температура на улице (°C)")
-    initial_charge_percent: float = Field(100.0, ge=1.0, le=100.0, description="Текущий уровень заряда батареи (%)")
-    headwind_kmh: float = Field(0.0, ge=0.0, le=100.0, description="Скорость встречного ветра (км/ч)")
-    find_alternatives: bool = Field(True, description="Искать альтернативные маршруты (быстрый vs эко)")
+    initial_charge_percent: float = Field(80.0, ge=1.0, le=100.0, description="Текущий уровень заряда батареи (%)")
+    headwind_kmh: float = Field(0.0, ge=0.0, le=100.0, description="Скорость ветра (км/ч)")
+    find_alternatives: bool = Field(True, description="Искать альтернативные маршруты")
+
+
+class ElevationPoint(BaseModel):
+    distance_km: float
+    elevation_m: float
 
 
 class RouteDetails(BaseModel):
@@ -67,6 +93,7 @@ class RouteDetails(BaseModel):
     safety_status: str
     energy_breakdown: Dict[str, float]
     geometry: List[List[float]]
+    elevation_profile: List[ElevationPoint]
 
 
 class RouteOptimizationResponse(BaseModel):
@@ -74,6 +101,7 @@ class RouteOptimizationResponse(BaseModel):
     routes: List[RouteDetails]
     bike_info: Dict[str, Any]
     ambient_info: Dict[str, Any]
+    is_round_trip: bool
 
 
 @app.get("/health")
@@ -85,18 +113,34 @@ def health_check():
     }
 
 
+def _resolve_coordinates(req: RouteRequest) -> List[List[float]]:
+    if req.coordinates and len(req.coordinates) >= 2:
+        coords = [list(c) for c in req.coordinates]
+    elif req.start_lon is not None and req.start_lat is not None and req.end_lon is not None and req.end_lat is not None:
+        coords = [[req.start_lon, req.start_lat], [req.end_lon, req.end_lat]]
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Необходимо передать либо start_lon/lat и end_lon/lat, либо массив coordinates (минимум 2 точки)."
+        )
+
+    # Логика закольцовывания маршрута
+    if req.round_trip and len(coords) >= 2:
+        if coords[-1] != coords[0]:
+            coords.append(coords[0])
+
+    return coords
+
+
 async def _fetch_routes_from_ors(
-    start_lon: float,
-    start_lat: float,
-    end_lon: float,
-    end_lat: float,
+    coords: List[List[float]],
     find_alternatives: bool
 ) -> List[Dict[str, Any]]:
     """Асинхронный запрос маршрутов в OpenRouteService с профилем высот."""
     if not ORS_API_KEY or ORS_API_KEY.startswith("your_"):
         raise HTTPException(
             status_code=500,
-            detail="ORS_API_KEY не сконфигурирован в .env файле. Получите бесплатный ключ на openrouteservice.org"
+            detail="ORS_API_KEY не сконфигурирован в .env файле. Получите ключ на openrouteservice.org"
         )
 
     headers = {
@@ -105,11 +149,12 @@ async def _fetch_routes_from_ors(
     }
 
     body: Dict[str, Any] = {
-        "coordinates": [[start_lon, start_lat], [end_lon, end_lat]],
+        "coordinates": coords,
         "elevation": True,
     }
 
-    if find_alternatives:
+    # Альтернативные маршруты доступны только для 2 точек в ORS API
+    if find_alternatives and len(coords) == 2:
         body["alternative_routes"] = {
             "target_count": 2,
             "share_factor": 0.8,
@@ -147,40 +192,74 @@ def _process_routes_energy(
     features: List[Dict[str, Any]],
     req: RouteRequest
 ) -> RouteOptimizationResponse:
-    # Определение параметров байка
-    preset = BIKE_PRESETS.get(req.bike_preset, BIKE_PRESETS["courier_standard"])
-    battery_capacity = req.custom_battery_capacity_wh or preset.battery_capacity_wh
-    bike_weight = preset.bike_weight_kg
+    # Определение параметров байка (пресет или кастом)
+    if req.custom_voltage_v and req.custom_capacity_ah:
+        bike = create_custom_preset(
+            voltage_v=req.custom_voltage_v,
+            capacity_ah=req.custom_capacity_ah,
+            bike_weight_kg=req.custom_bike_weight_kg or 32.0
+        )
+    elif req.bike_preset in BIKE_PRESETS:
+        bike = BIKE_PRESETS[req.bike_preset]
+    else:
+        bike = BIKE_PRESETS["courier_standard"]
+
+    battery_capacity = req.custom_battery_capacity_wh or bike.battery_capacity_wh
+    bike_weight = bike.bike_weight_kg
 
     computed_routes: List[RouteDetails] = []
 
     for idx, feat in enumerate(features):
-        segment = feat["properties"]["segments"][0]
-        distance_km = segment.get("distance", 0.0) / 1000.0
-        duration_sec = segment.get("duration", 0.0)
-        ascent_m = segment.get("ascent", 0.0)
-        descent_m = segment.get("descent", 0.0)
+        segments = feat["properties"].get("segments", [])
         coords = feat["geometry"]["coordinates"]
 
-        # Если ORS вернул плоский сегмент, рассчитаем перепад по 3D точкам
-        if ascent_m == 0.0 and len(coords) > 1 and len(coords[0]) > 2:
-            elevations = [c[2] for c in coords if len(c) > 2]
-            ascent_m = sum(max(0.0, elevations[i] - elevations[i-1]) for i in range(1, len(elevations)))
-            descent_m = sum(max(0.0, elevations[i-1] - elevations[i]) for i in range(1, len(elevations)))
+        # Собираем данные сегментов для посегментного расчета
+        segments_data = []
+        for seg in segments:
+            segments_data.append({
+                "distance_km": seg.get("distance", 0.0) / 1000.0,
+                "duration_seconds": seg.get("duration", 0.0),
+                "ascent_m": seg.get("ascent", 0.0),
+                "descent_m": seg.get("descent", 0.0),
+            })
 
-        energy_res = EbikePhysicsModel.calculate_energy(
-            distance_km=distance_km,
-            ascent_m=ascent_m,
-            descent_m=descent_m,
-            duration_seconds=duration_sec,
-            cargo_weight_kg=req.cargo_weight_kg,
+        # Если сегментов не было или перепады нулевые, проверим по 3D координатам
+        if not segments_data:
+            summary = feat["properties"].get("summary", {})
+            segments_data.append({
+                "distance_km": summary.get("distance", 0.0) / 1000.0,
+                "duration_seconds": summary.get("duration", 0.0),
+                "ascent_m": summary.get("ascent", 0.0),
+                "descent_m": summary.get("descent", 0.0),
+            })
+
+        energy_res = EbikePhysicsModel.calculate_multistop_energy(
+            segments_data=segments_data,
+            total_cargo_start_kg=req.cargo_weight_kg,
             rider_weight_kg=req.rider_weight_kg,
             bike_weight_kg=bike_weight,
             battery_capacity_wh=battery_capacity,
             initial_charge_percent=req.initial_charge_percent,
             temp_c=req.temp_c,
             headwind_kmh=req.headwind_kmh,
+            is_round_trip=req.round_trip
         )
+
+        # Генерация профиля высот вдоль маршрута
+        profile: List[ElevationPoint] = []
+        cum_dist = 0.0
+        for i, pt in enumerate(coords):
+            ele = pt[2] if len(pt) > 2 else 0.0
+            if i > 0:
+                # Примерное расстояние между точками
+                p1, p2 = coords[i-1], coords[i]
+                d_lat = (p2[1] - p1[1]) * 111.0
+                d_lon = (p2[0] - p1[0]) * 71.5
+                cum_dist += (d_lat**2 + d_lon**2)**0.5
+            profile.append(ElevationPoint(
+                distance_km=round(cum_dist, 2),
+                elevation_m=round(ele, 1)
+            ))
 
         name = "Основной маршрут" if idx == 0 else f"Альтернативный маршрут #{idx}"
 
@@ -200,61 +279,57 @@ def _process_routes_energy(
             can_complete_route=energy_res.can_complete_route,
             safety_status=energy_res.safety_status,
             energy_breakdown=energy_res.details,
-            geometry=coords
+            geometry=coords,
+            elevation_profile=profile[::max(1, len(profile)//100)]  # сэмплирование до 100 точек
         ))
 
-    # Логика AI-рекомендации оптимального маршрута
+    # Рекомендации
     if len(computed_routes) > 1:
-        # Сравниваем: если у курьера мало заряда, рекомендуем наименее энергозатратный
         lowest_energy = min(computed_routes, key=lambda r: r.energy_consumed_wh)
         fastest = min(computed_routes, key=lambda r: r.duration_minutes)
 
         if req.initial_charge_percent < 25.0 or not fastest.can_complete_route:
             lowest_energy.is_recommended = True
-            lowest_energy.recommendation_reason = "Энергосберегающий выбор: экономит АКБ при низком остатке заряда."
-            if fastest != lowest_energy:
-                fastest.name = "Быстрый маршрут (энергоемкий)"
-                lowest_energy.name = "Эко-маршрут (минимальный набор высоты)"
+            lowest_energy.recommendation_reason = "Энергосберегающий выбор: экономит АКБ при низком заряде."
+            fastest.name = "Быстрый маршрут (энергоемкий)"
+            lowest_energy.name = "Эко-маршрут (пологий рельеф)"
         else:
             fastest.is_recommended = True
-            fastest.recommendation_reason = "Оптимальный баланс времени доставки и расхода батареи."
+            fastest.recommendation_reason = "Оптимальный баланс скорости доставки и расхода батареи."
             fastest.name = "Самый быстрый маршрут"
-            if lowest_energy != fastest:
-                lowest_energy.name = "Эко-альтернатива (пологий рельеф)"
+            lowest_energy.name = "Эко-альтернатива (пологий)"
     elif computed_routes:
         computed_routes[0].is_recommended = True
-        computed_routes[0].recommendation_reason = "Единственный доступный маршрут."
+        computed_routes[0].recommendation_reason = "Рассчитанный маршрут с учетом рельефа и остатка батареи."
 
     return RouteOptimizationResponse(
         status="ok",
         routes=computed_routes,
         bike_info={
-            "preset_key": req.bike_preset,
-            "preset_name": preset.name,
+            "preset_name": bike.name,
             "battery_capacity_wh": battery_capacity,
+            "voltage_v": bike.nominal_voltage_v,
             "bike_weight_kg": bike_weight,
             "effective_capacity_wh": round(battery_capacity * EbikePhysicsModel.get_temperature_capacity_factor(req.temp_c), 1)
         },
         ambient_info={
             "temp_c": req.temp_c,
-            "headwind_kmh": req.headwind_kmh,
-            "cargo_weight_kg": req.cargo_weight_kg,
+            "cargo_weight_start_kg": req.cargo_weight_kg,
             "rider_weight_kg": req.rider_weight_kg,
             "temperature_capacity_factor": round(EbikePhysicsModel.get_temperature_capacity_factor(req.temp_c), 2)
-        }
+        },
+        is_round_trip=req.round_trip
     )
 
 
 @app.post("/optimize", response_model=RouteOptimizationResponse)
 async def optimize_route(request: RouteRequest):
     """
-    Основной POST-эндпоинт для расчета и оптимизации маршрута.
+    Основной POST-эндпоинт для расчета и оптимизации мульти-точечных маршрутов.
     """
+    coords = _resolve_coordinates(request)
     features = await _fetch_routes_from_ors(
-        start_lon=request.start_lon,
-        start_lat=request.start_lat,
-        end_lon=request.end_lon,
-        end_lat=request.end_lat,
+        coords=coords,
         find_alternatives=request.find_alternatives
     )
     return _process_routes_energy(features, request)
@@ -266,20 +341,22 @@ async def optimize_route_get(
     start_lat: float = Query(..., ge=-90, le=90),
     end_lon: float = Query(..., ge=-180, le=180),
     end_lat: float = Query(..., ge=-90, le=90),
-    weight: float = Query(5.0, ge=0.0, le=50.0, description="Вес сумки (кг)"),
-    temp: float = Query(15.0, ge=-40.0, le=50.0, description="Температура (°C)"),
+    round_trip: bool = Query(False),
+    weight: float = Query(6.0, ge=0.0, le=50.0),
+    temp: float = Query(15.0, ge=-40.0, le=50.0),
     bike_preset: str = Query("courier_standard"),
     battery_wh: Optional[float] = Query(None),
-    charge: float = Query(100.0, ge=1.0, le=100.0)
+    charge: float = Query(80.0, ge=1.0, le=100.0)
 ):
     """
-    GET-эндпоинт для обратной совместимости и быстрого тестирования в браузере.
+    GET-эндпоинт для быстрой проверки и обратной совместимости.
     """
     req = RouteRequest(
         start_lon=start_lon,
         start_lat=start_lat,
         end_lon=end_lon,
         end_lat=end_lat,
+        round_trip=round_trip,
         cargo_weight_kg=weight,
         temp_c=temp,
         bike_preset=bike_preset,
@@ -288,7 +365,6 @@ async def optimize_route_get(
         find_alternatives=True
     )
     res = await optimize_route(req)
-    # Формируем компактный ответ, совместимый со старым форматом + расширенные данные
     primary = res.routes[0]
     return {
         "distance_km": primary.distance_km,
@@ -297,6 +373,7 @@ async def optimize_route_get(
         "energy_consumed_wh": primary.energy_consumed_wh,
         "final_charge_percent": primary.final_charge_percent,
         "safety_status": primary.safety_status,
+        "is_round_trip": res.is_round_trip,
         "geometry": primary.geometry,
         "all_routes": [r.model_dump() for r in res.routes]
     }
