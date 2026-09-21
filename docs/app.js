@@ -108,7 +108,7 @@
     if (!container) {
       container = document.createElement('div');
       container.id = 'toastContainer';
-      container.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full px-4';
+      container.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none w-full max-w-[min(90vw,420px)] px-3 box-border';
       document.body.appendChild(container);
     }
 
@@ -127,8 +127,8 @@
       error: 'fa-circle-xmark'
     };
 
-    toast.className = `toast-in pointer-events-auto p-3 rounded-2xl shadow-xl border backdrop-blur-md text-xs font-semibold flex items-center gap-2.5 transition-all ${bgColors[type] || bgColors.info}`;
-    toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info} text-sm flex-shrink-0"></i><span class="flex-1">${escapeHtml(message)}</span>`;
+    toast.className = `toast-in pointer-events-auto p-3 rounded-2xl shadow-xl border backdrop-blur-md text-xs font-semibold flex items-center gap-2.5 transition-all w-full box-border ${bgColors[type] || bgColors.info}`;
+    toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info} text-sm flex-shrink-0"></i><span class="flex-1 break-words">${escapeHtml(message)}</span>`;
 
     container.appendChild(toast);
 
@@ -1174,11 +1174,14 @@
 
     getSnapPositions() {
       const vh = window.innerHeight;
+      const cardHeight = (this.el && this.el.offsetHeight > 100) ? this.el.offsetHeight : Math.max(300, vh - 56);
+      const peekHeaderHeight = ((this.handle?.offsetHeight || 24) + (this.miniDashboard?.offsetHeight || 52)) || 76;
+
       return {
-        hidden: vh + 30,
-        peek: vh - 78,
-        half: Math.max(vh * 0.48, vh - 430),
-        full: Math.max(40, vh * 0.12)
+        hidden: cardHeight + 40,
+        peek: Math.max(0, cardHeight - peekHeaderHeight),
+        half: Math.max(0, Math.round(cardHeight * 0.48)),
+        full: 0
       };
     }
 
@@ -1281,20 +1284,24 @@
         if (velocity > 0.4) {
           // Fast swipe down
           if (this.state === 'full') {
-            targetState = (velocity > 0.95 || deltaY > 240) ? 'peek' : 'half';
+            targetState = (velocity > 0.95 || deltaY > 180) ? 'peek' : 'half';
           } else if (this.state === 'half') {
-            targetState = (velocity > 0.75 || deltaY > 150) ? 'hidden' : 'peek';
+            targetState = (velocity > 0.75 || deltaY > 120) ? 'hidden' : 'peek';
           } else if (this.state === 'peek') {
             targetState = 'hidden';
           }
         } else if (velocity < -0.4) {
           // Fast swipe up
-          if (this.state === 'peek') targetState = 'half';
-          else if (this.state === 'half') targetState = 'full';
-          else targetState = 'full';
+          if (this.state === 'peek') {
+            targetState = (velocity < -0.95 || deltaY < -180) ? 'full' : 'half';
+          } else if (this.state === 'half') {
+            targetState = 'full';
+          } else {
+            targetState = 'full';
+          }
         } else {
           // Position-based snapping
-          if (this.currentY >= snaps.peek + 35) {
+          if (this.currentY >= snaps.peek + (snaps.hidden - snaps.peek) * 0.35) {
             // Dragged down towards bottom edge -> hide completely
             targetState = 'hidden';
           } else {
@@ -1346,7 +1353,7 @@
       if (this.handle) {
         this.handle.addEventListener('click', () => {
           if (this.state === 'peek') this.snapTo('half');
-          else if (this.state === 'half') this.snapTo('peek');
+          else if (this.state === 'half') this.snapTo('full');
           else if (this.state === 'full') this.snapTo('half');
         });
       }
@@ -1355,6 +1362,8 @@
         this.miniDashboard.addEventListener('click', (e) => {
           if (e.target.closest('#btnCloseResults') || e.target.closest('#btnMinimizeResults') || e.target.closest('#btnSheetRecalcMini')) return;
           if (this.state === 'peek') this.snapTo('half');
+          else if (this.state === 'half') this.snapTo('full');
+          else if (this.state === 'full') this.snapTo('half');
         });
       }
 
@@ -1380,7 +1389,8 @@
       if (btnScrollClose) {
         btnScrollClose.addEventListener('click', (e) => {
           e.stopPropagation();
-          this.snapTo('hidden');
+          if (this.state === 'full') this.snapTo('half');
+          else this.snapTo('hidden');
         });
       }
 

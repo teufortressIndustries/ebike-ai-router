@@ -127,22 +127,22 @@ html, body, #map {
 @keyframes slideDownFade {
   from {
     opacity: 0;
-    transform: translate(-50%, -16px) scale(0.96);
+    transform: translateY(-16px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 0) scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes slideUpFade {
   from {
     opacity: 1;
-    transform: translate(-50%, 0) scale(1);
+    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: translate(-50%, -16px) scale(0.96);
+    transform: translateY(-16px) scale(0.96);
   }
 }
 
@@ -154,6 +154,27 @@ html, body, #map {
   animation: slideUpFade 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Responsive bottom sheet and viewport fixes */
+#resultsCard {
+  height: calc(100vh - 56px);
+  height: calc(100dvh - 3.5rem);
+  max-height: calc(100dvh - 3.5rem);
+  bottom: 0;
+}
+
+#sheetScrollBody {
+  padding-bottom: max(2.5rem, calc(1.5rem + env(safe-area-inset-bottom, 20px)));
+  -webkit-overflow-scrolling: touch;
+}
+
+#toastContainer {
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: min(90vw, 420px);
+  pointer-events: none;
+}
+
 /* Pulse animation for API and status indicators */
 @keyframes softPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -163,3 +184,4 @@ html, body, #map {
 .animate-soft-pulse {
   animation: softPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+

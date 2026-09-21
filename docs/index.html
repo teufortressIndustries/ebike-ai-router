@@ -29,18 +29,18 @@
   <div id="map" class="z-0"></div>
 
   <!-- Плавающий верхний остров (Map-First Top Bar) -->
-  <div class="fixed top-3 left-3 right-3 z-20 max-w-md mx-auto flex flex-col gap-1.5 pointer-events-none">
+  <div class="fixed top-3 left-3 right-3 z-20 max-w-lg mx-auto flex flex-col gap-1.5 pointer-events-none">
     
     <!-- 1. Основная компактная строка поиска и статуса (высота 48px) -->
     <div class="glass-panel rounded-2xl p-1.5 pointer-events-auto flex items-center gap-1.5 relative shadow-sm">
       <!-- Кнопка города -->
-      <button id="btnCityBadge" title="Сменить город поиска" class="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 flex-shrink-0 border border-slate-200 dark:border-slate-700 max-w-[110px]">
+      <button id="btnCityBadge" title="Сменить город поиска" class="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 sm:gap-1.5 transition active:scale-95 flex-shrink-0 border border-slate-200 dark:border-slate-700 max-w-[85px] sm:max-w-[115px]">
         <i class="fa-solid fa-city text-blue-600 dark:text-blue-400 text-[11px] flex-shrink-0"></i>
         <span id="cityBadgeText" class="truncate">Караганда</span>
       </button>
 
       <!-- Поле ввода адреса -->
-      <div class="relative flex-1">
+      <div class="relative flex-1 min-w-[70px]">
         <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
         <input type="text" id="searchInput" placeholder="Поиск улицы или вставка..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-6 py-1.5 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1.5 focus:ring-blue-500 font-medium">
         <button id="btnClearSearch" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">
@@ -54,7 +54,7 @@
       </button>
 
       <!-- Статус API сервера -->
-      <button id="serverStatusBadge" title="Статус FastAPI бэкенда" class="h-8 px-2.5 rounded-xl text-[10px] font-bold bg-amber-50 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1.5 cursor-pointer flex-shrink-0 transition active:scale-95">
+      <button id="serverStatusBadge" title="Статус FastAPI бэкенда" class="h-8 px-2 sm:px-2.5 rounded-xl text-[10px] font-bold bg-amber-50 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1.5 cursor-pointer flex-shrink-0 transition active:scale-95">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
         <span class="hidden sm:inline font-bold">API</span>
       </button>
@@ -192,7 +192,7 @@
   </div>
 
   <!-- Кнопка расчета маршрута и плавающий бар восстановления при скрытой шторке -->
-  <div class="fixed bottom-5 left-4 right-4 z-20 max-w-md mx-auto pointer-events-none" id="bottomActionArea">
+  <div class="fixed bottom-5 left-4 right-4 z-20 max-w-md mx-auto pointer-events-none" style="bottom: max(1.25rem, calc(0.5rem + env(safe-area-inset-bottom, 0px)));" id="bottomActionArea">
     <!-- Когда маршрут еще не рассчитан -->
     <button id="btnCalculate" class="w-full pointer-events-auto bg-slate-900 hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-semibold py-3.5 px-5 rounded-2xl shadow-xl shadow-slate-900/30 flex items-center justify-center gap-2 transition active:scale-[0.98]">
       <i class="fa-solid fa-bolt text-amber-400"></i>
@@ -225,7 +225,7 @@
   </div>
 
   <!-- Настоящий жестовый Bottom Sheet с результатами расчета -->
-  <div id="resultsCard" class="hidden fixed bottom-0 left-0 right-0 z-30 glass-sheet rounded-t-3xl max-w-lg mx-auto pointer-events-auto flex flex-col will-change-transform select-none" style="height: 86vh; transform: translateY(100%);">
+  <div id="resultsCard" class="hidden fixed bottom-0 left-0 right-0 z-30 glass-sheet rounded-t-3xl max-w-lg mx-auto pointer-events-auto flex flex-col will-change-transform select-none" style="height: calc(100dvh - 3.5rem); max-height: calc(100vh - 56px); transform: translateY(100%);">
     
     <!-- 1. Зона перетягивания (Drag Handle) -->
     <div class="w-full pt-3 pb-2 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing touch-none" id="closeResults">
@@ -368,7 +368,7 @@
 
   <!-- Модальное окно настроек: Кастомный гараж курьера и условия -->
   <div id="settingsModal" class="hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 max-h-[92vh] overflow-y-auto custom-scroll border border-slate-200 dark:border-slate-800">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 pb-8 sm:pb-5 max-h-[90vh] max-h-[90dvh] overflow-y-auto custom-scroll border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
           <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
@@ -526,7 +526,7 @@
 
   <!-- Модальное окно пакетного импорта смены -->
   <div id="batchModal" class="hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 max-h-[92vh] overflow-y-auto custom-scroll border border-slate-200 dark:border-slate-800">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 pb-8 sm:pb-5 max-h-[90vh] max-h-[90dvh] overflow-y-auto custom-scroll border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
           <div class="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
