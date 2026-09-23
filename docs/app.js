@@ -88,7 +88,8 @@
     selectedRouteIdx: 0,
     isRouteCalculated: false,
     isRouteStale: true,
-    lastCalculatedHash: null
+    lastCalculatedHash: null,
+    showStations: false
   };
 
   // --- Sanitization & Safety ---
@@ -322,13 +323,14 @@
   }
 
   // --- Map Initialization ---
-  let map, tileLayer, mapMarkers = [], routeLayersGroup, elevationMarker = null;
+  let map, tileLayer, mapMarkers = [], routeLayersGroup, stationsLayerGroup, elevationMarker = null;
 
   function initMap() {
     map = L.map('map', { zoomControl: false }).setView([49.7960, 73.1060], 13);
     L.control.zoom({ position: 'topright' }).addTo(map);
 
     routeLayersGroup = L.layerGroup().addTo(map);
+    stationsLayerGroup = L.layerGroup().addTo(map);
     updateMapTiles();
 
     map.on('click', (e) => {
@@ -346,6 +348,128 @@
       }
       refreshMarkers();
     });
+
+    let mapMoveTimeout = null;
+    map.on('moveend', () => {
+      if (state.showStations) {
+        clearTimeout(mapMoveTimeout);
+        mapMoveTimeout = setTimeout(() => {
+          fetchAndRenderStations();
+        }, 350);
+      }
+    });
+  }
+
+  // --- Stations Layer (Battery Swap & Charging) ---
+  let isFetchingStations = false;
+
+  async function fetchAndRenderStations() {
+    if (!map || !state.showStations) {
+      if (stationsLayerGroup) stationsLayerGroup.clearLayers();
+      return;
+    }
+
+    if (isFetchingStations) return;
+    isFetchingStations = true;
+
+    const bounds = map.getBounds();
+    const minLat = bounds.getSouth();
+    const minLon = bounds.getWest();
+    const maxLat = bounds.getNorth();
+    const maxLon = bounds.getEast();
+
+    try {
+      const baseUrl = (state.apiBaseUrl || DEFAULT_API_URL).replace(/\/+$/, '');
+      const url = `${baseUrl}/stations?min_lat=${minLat.toFixed(4)}&min_lon=${minLon.toFixed(4)}&max_lat=${maxLat.toFixed(4)}&max_lon=${maxLon.toFixed(4)}&city=${encodeURIComponent(state.currentCity || '')}`;
+      
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const stations = await res.json();
+
+      stationsLayerGroup.clearLayers();
+
+      stations.forEach((st) => {
+        const isSwap = st.station_type === 'swap';
+        const pinClass = isSwap ? 'station-pin station-pin-swap' : 'station-pin station-pin-charge';
+        const iconHtml = isSwap
+          ? `<i class="fa-solid fa-battery-half text-xs"></i>`
+          : `<i class="fa-solid fa-bolt text-xs"></i>`;
+
+        const stationIcon = L.divIcon({
+          className: '',
+          html: `<div class="${pinClass}" style="width:32px; height:32px;" title="${escapeHtml(st.name)}">${iconHtml}</div>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16]
+        });
+
+        const marker = L.marker([st.lat, st.lon], { icon: stationIcon }).addTo(stationsLayerGroup);
+
+        const typeBadge = isSwap
+          ? `<span class="bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300 px-2 py-0.5 rounded-full text-[10px] font-bold">⚡ Swap АКБ</span>`
+          : `<span class="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 px-2 py-0.5 rounded-full text-[10px] font-bold">🔌 Зарядка</span>`;
+
+        const popupContent = `
+          <div class="p-3.5 space-y-2 text-xs" style="min-width: 220px; max-width: 280px;">
+            <div class="flex items-center justify-between gap-1 pb-1 border-b border-slate-100 dark:border-slate-800">
+              ${typeBadge}
+              ${st.voltage_info ? `<span class="text-[10px] text-slate-500 font-semibold">${escapeHtml(st.voltage_info)}</span>` : ''}
+            </div>
+            <div>
+              <div class="font-bold text-slate-900 dark:text-slate-100 text-sm leading-snug">${escapeHtml(st.name)}</div>
+              ${st.address ? `<div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">📍 ${escapeHtml(st.address)}</div>` : ''}
+              ${st.operator ? `<div class="text-[10px] text-slate-400 dark:text-slate-400 mt-0.5">Оператор: ${escapeHtml(st.operator)}</div>` : ''}
+              ${st.fee ? `<div class="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 mt-1">Тариф: ${escapeHtml(st.fee)}</div>` : ''}
+            </div>
+            <button onclick="window.addStationPointToRoute(${st.lat}, ${st.lon}, '${escapeHtml(st.name).replace(/'/g, "\\'")}')" class="w-full mt-2 py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95">
+              <i class="fa-solid fa-plus text-[10px]"></i>
+              <span>Заехать на станцию (+ в маршрут)</span>
+            </button>
+          </div>
+        `;
+
+        marker.bindPopup(popupContent, { className: 'station-popup' });
+      });
+
+    } catch (err) {
+      console.warn("[Stations] Could not fetch stations:", err);
+    } finally {
+      isFetchingStations = false;
+    }
+  }
+
+  // Глобальная функция для вызова из HTML popup
+  window.addStationPointToRoute = function(lat, lon, name) {
+    state.waypoints.push([parseFloat(lat), parseFloat(lon)]);
+    refreshMarkers();
+    showToast(`Станция "${name}" добавлена в маршрут!`, 'success');
+    map.closePopup();
+    executeRouteCalculation();
+  };
+
+  function toggleStationsVisibility(enabled) {
+    state.showStations = (enabled !== undefined) ? enabled : !state.showStations;
+
+    const toggleInp = document.getElementById('toggleStationsLayer');
+    if (toggleInp) toggleInp.checked = state.showStations;
+
+    const fabBtn = document.getElementById('btnToggleStationsFAB');
+    if (fabBtn) {
+      if (state.showStations) {
+        fabBtn.classList.remove('text-purple-600', 'dark:text-purple-400');
+        fabBtn.classList.add('bg-purple-600', 'text-white', 'shadow-purple-500/40');
+      } else {
+        fabBtn.classList.remove('bg-purple-600', 'text-white', 'shadow-purple-500/40');
+        fabBtn.classList.add('text-purple-600', 'dark:text-purple-400');
+      }
+    }
+
+    if (state.showStations) {
+      fetchAndRenderStations();
+      showToast("Слой станций питания и Swap включен", "info", 2000);
+    } else {
+      if (stationsLayerGroup) stationsLayerGroup.clearLayers();
+      showToast("Слой станций питания скрыт", "info", 1500);
+    }
   }
 
   function updateMapTiles() {
@@ -938,6 +1062,30 @@
         banner.className = "p-3 rounded-2xl mb-3 text-xs flex items-center gap-2.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800";
         banner.innerHTML = `<i class="fa-solid fa-circle-check text-lg text-emerald-600"></i><div><b>Маршрут безопасен:</b> запас хода достаточен. Остаток АКБ: <b>${r.final_charge_percent}%</b>.</div>`;
       }
+    }
+
+    // Predictive Swap Station Recommendation (< 15%)
+    const swapAlertBox = document.getElementById('swapStationAlert');
+    const swapTitle = document.getElementById('swapAlertTitle');
+    const swapDesc = document.getElementById('swapAlertDesc');
+    const btnApplySwap = document.getElementById('btnApplySwapStation');
+
+    const suggested = r.suggested_swap_station || state.calculatedResponse?.suggested_swap_station;
+    if (swapAlertBox && suggested && r.final_charge_percent < 15.0) {
+      swapAlertBox.classList.remove('hidden');
+      if (swapTitle) swapTitle.innerText = suggested.name;
+      if (swapDesc) {
+        const distStr = suggested.distance_km ? `${suggested.distance_km} км` : 'поблизости';
+        swapDesc.innerText = `${suggested.station_type === 'swap' ? 'Замена батареи' : 'Зарядка'} • ${distStr} ${suggested.address ? `(${suggested.address})` : ''}`;
+      }
+      if (btnApplySwap) {
+        btnApplySwap.onclick = () => {
+          window.addStationPointToRoute(suggested.lat, suggested.lon, suggested.name);
+          swapAlertBox.classList.add('hidden');
+        };
+      }
+    } else if (swapAlertBox) {
+      swapAlertBox.classList.add('hidden');
     }
 
     document.getElementById('resDistance').innerText = r.distance_km + ' км';
@@ -1533,6 +1681,21 @@
           setClickMode('add_stop');
         }
         refreshMarkers();
+      };
+    }
+
+    // Stations & Swap Layer toggles
+    const toggleStations = document.getElementById('toggleStationsLayer');
+    if (toggleStations) {
+      toggleStations.onchange = (e) => {
+        toggleStationsVisibility(e.target.checked);
+      };
+    }
+
+    const btnToggleStationsFAB = document.getElementById('btnToggleStationsFAB');
+    if (btnToggleStationsFAB) {
+      btnToggleStationsFAB.onclick = () => {
+        toggleStationsVisibility(!state.showStations);
       };
     }
 

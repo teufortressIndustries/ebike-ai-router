@@ -145,13 +145,19 @@
         </div>
       </div>
 
-      <!-- Туда и обратно -->
-      <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-xs">
+      <!-- Туда и обратно и Слой зарядок -->
+      <div class="pt-1 border-t border-slate-100 dark:border-slate-800 text-xs space-y-2">
         <label class="flex items-center gap-2 cursor-pointer select-none">
           <input type="checkbox" id="toggleRoundTrip" class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-500">
           <span class="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
             <i class="fa-solid fa-rotate-left text-[11px] text-emerald-600"></i> Туда и обратно (на Старт)
           </span>
+        </label>
+        <label class="flex items-center justify-between cursor-pointer select-none">
+          <span class="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-charging-station text-purple-600 dark:text-purple-400 text-xs"></i> Станции зарядок и Swap АКБ
+          </span>
+          <input type="checkbox" id="toggleStationsLayer" class="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 accent-purple-600">
         </label>
       </div>
 
@@ -177,6 +183,9 @@
 
   <!-- Плавающий стек кнопок управления (FAB Stack справа) -->
   <div class="fixed right-3 bottom-24 z-20 flex flex-col gap-2 pointer-events-none">
+    <button id="btnToggleStationsFAB" title="Показать станции питания и Swap АКБ" class="w-11 h-11 rounded-2xl glass-panel text-purple-600 dark:text-purple-400 flex items-center justify-center shadow-lg transition active:scale-95 pointer-events-auto hover:bg-purple-50 dark:hover:bg-purple-950/60">
+      <i class="fa-solid fa-charging-station text-base"></i>
+    </button>
     <button id="btnFloatReopenRoute" title="Показать результаты маршрута" class="hidden w-11 h-11 rounded-2xl glass-panel text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-lg transition active:scale-95 pointer-events-auto hover:bg-blue-50 dark:hover:bg-blue-950/60 animate-bounce">
       <i class="fa-solid fa-chart-line text-base"></i>
     </button>
@@ -289,6 +298,23 @@
 
       <!-- Статус безопасности батареи -->
       <div id="safetyBanner" class="p-3.5 rounded-2xl text-xs flex items-center gap-2.5 font-medium shadow-xs"></div>
+
+      <!-- Рекомендованная станция быстрой замены / зарядки АКБ при малом остатке заряда -->
+      <div id="swapStationAlert" class="hidden p-3 rounded-2xl text-xs flex items-center justify-between gap-2.5 bg-purple-50 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 border border-purple-200 dark:border-purple-800 shadow-xs">
+        <div class="flex items-center gap-2 min-w-0">
+          <div class="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center flex-shrink-0">
+            <i class="fa-solid fa-battery-half text-sm"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="font-bold truncate" id="swapAlertTitle">Swap-станция рядом</div>
+            <div class="text-[11px] text-purple-700 dark:text-purple-300 truncate" id="swapAlertDesc">Дистанция: -- км</div>
+          </div>
+        </div>
+        <button id="btnApplySwapStation" class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-xs transition active:scale-95 flex-shrink-0">
+          <i class="fa-solid fa-plus text-[10px]"></i>
+          <span>В маршрут</span>
+        </button>
+      </div>
 
       <!-- Сетка ключевых показателей -->
       <div class="grid grid-cols-3 gap-2">

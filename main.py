@@ -23,6 +23,7 @@ from physics import (
     optimize_delivery_order,
     DeliveryOrderOptimizationResult
 )
+from stations import stations_service, StationInfo
 
 load_dotenv()
 
@@ -119,6 +120,7 @@ class RouteDetails(BaseModel):
     effective_crr: float = 0.007
     road_condition: str = "dry"
     legs: List[RouteLeg] = Field(default_factory=list)
+    suggested_swap_station: Optional[StationInfo] = None
 
 
 class RouteOptimizationResponse(BaseModel):
@@ -127,6 +129,7 @@ class RouteOptimizationResponse(BaseModel):
     bike_info: Dict[str, Any]
     ambient_info: Dict[str, Any]
     is_round_trip: bool
+    suggested_swap_station: Optional[StationInfo] = None
 
 
 class OptimizeOrderRequest(BaseModel):
@@ -481,17 +484,64 @@ def _process_routes_energy(
     )
 
 
+@app.get("/stations", response_model=List[StationInfo])
+async def get_stations(
+    min_lat: float = Query(..., ge=-90.0, le=90.0),
+    min_lon: float = Query(..., ge=-180.0, le=180.0),
+    max_lat: float = Query(..., ge=-90.0, le=90.0),
+    max_lon: float = Query(..., ge=-180.0, le=180.0),
+    city: Optional[str] = Query(None)
+):
+    """
+    Эндпоинт для получения станций быстрой замены аккумуляторов (Swap) и зарядок
+    в видимой области карты (bbox) через Overpass OSM с кэшированием и fallback.
+    """
+    return await stations_service.get_stations(
+        min_lat=min_lat,
+        min_lon=min_lon,
+        max_lat=max_lat,
+        max_lon=max_lon,
+        city=city
+    )
+
+
 @app.post("/optimize", response_model=RouteOptimizationResponse)
 async def optimize_route(request: RouteRequest):
     """
     Основной POST-эндпоинт для расчета и оптимизации мульти-точечных маршрутов.
+    Включает предиктивную защиту от разряда: при остатке АКБ < 15% автоматически
+    рекомендует ближайшую Swap-станцию.
     """
     coords = _resolve_coordinates(request)
     features = await _fetch_routes_from_ors(
         coords=coords,
         find_alternatives=request.find_alternatives
     )
-    return _process_routes_energy(features, request)
+    result = _process_routes_energy(features, request)
+
+    # Проверка на предупреждение о разрядке (< 15%)
+    critical_route = any(r.final_charge_percent < 15.0 for r in result.routes)
+    if critical_route and coords:
+        # Ищем станцию вокруг точек маршрута
+        lats = [c[1] for c in coords]
+        lons = [c[0] for c in coords]
+        margin = 0.05  # ~5.5 км запас
+        st_list = await stations_service.get_stations(
+            min_lat=min(lats) - margin,
+            min_lon=min(lons) - margin,
+            max_lat=max(lats) + margin,
+            max_lon=max(lons) + margin
+        )
+        # Ищем ближайшую станцию к финишной / критической точке маршрута
+        last_lat, last_lon = coords[-1][1], coords[-1][0]
+        suggested = stations_service.find_nearest_station(last_lat, last_lon, st_list, prefer_swap=True)
+        if suggested:
+            result.suggested_swap_station = suggested
+            for r in result.routes:
+                if r.final_charge_percent < 15.0:
+                    r.suggested_swap_station = suggested
+
+    return result
 
 
 @app.get("/optimize")
